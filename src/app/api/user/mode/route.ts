@@ -13,7 +13,9 @@
  *
  * The preference is consumed server-side by the recovery pipeline (the
  * disruption trigger and execution confirm routes resolve the FRESH value
- * from the DB — the JWT's copy is frozen at sign-in time).
+ * from the DB). The JWT's session copy is refreshed separately: after this
+ * PATCH succeeds, the header calls the NextAuth client `update({ preferredMode })`
+ * so the token copy stays in sync for the rest of the login session.
  */
 
 import { NextRequest, NextResponse } from 'next/server';

@@ -1,13 +1,14 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { useSession } from 'next-auth/react';
+import { signOut, useSession } from 'next-auth/react';
 import { useTheme } from 'next-themes';
 import { useCallback, useEffect, useState } from 'react';
 import {
   Download,
   FileSpreadsheet,
   Keyboard,
+  LogOut,
   Moon,
   Plane,
   Printer,
@@ -29,13 +30,21 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import type { CurrentTrip } from '@/hooks/use-flightresist';
 import { prettyState, stateTone } from '@/lib/flightresist/format';
@@ -65,6 +74,7 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
   // on the sun/moon icon.
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- standard next-themes mounted guard; the SSR-safe pattern requires one post-mount render flip.
   useEffect(() => setMounted(true), []);
   const isDark = !mounted || resolvedTheme !== 'light';
 
@@ -73,7 +83,7 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
   // and resolved server-side when a disruption is triggered. LIVE routes the
   // recovery pipeline through the real atlas-flight CLI; DEMO pins the
   // deterministic fixture.
-  const { data: session, status: sessionStatus } = useSession();
+  const { data: session, status: sessionStatus, update: updateSession } = useSession();
   const { toast } = useToast();
   const [atlasStatus, setAtlasStatus] = useState<AtlasStatus | null>(null);
   const [modeOverride, setModeOverride] = useState<'DEMO' | 'LIVE' | null>(null);
@@ -136,6 +146,9 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
           });
           return;
         }
+        // Commit the UI state first — the PATCH already persisted the
+        // preference, so a session-refresh hiccup must not look like a
+        // failed switch.
         setModeOverride(next);
         // Refresh trip state so downstream views re-sync with the new mode.
         onModeChanged?.();
@@ -146,6 +159,17 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
               ? 'The next disruption will be recovered against real airline availability via the Atlas CLI.'
               : 'The next disruption will be recovered against the deterministic demo fixture.',
         });
+        // Best-effort: refresh the NextAuth JWT with the new mode so it
+        // survives page reloads for the rest of this login session (the jwt
+        // callback merges it into the token on `update`). A failure here
+        // only delays the token copy — the DB is authoritative via
+        // resolveUserMode — so swallow it instead of surfacing a wrong
+        // "network error" toast.
+        try {
+          await updateSession({ preferredMode: next });
+        } catch (err) {
+          console.warn('Session token refresh after mode switch failed; DB preference is authoritative.', err);
+        }
       } catch {
         toast({
           title: 'Network error',
@@ -156,7 +180,7 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
         setModeBusy(false);
       }
     },
-    [atlasStatus, mode, modeBusy, onModeChanged, toast],
+    [atlasStatus, mode, modeBusy, onModeChanged, toast, updateSession],
   );
 
   const downloadReport = () => {
@@ -211,61 +235,67 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
               rides inside each option label, so it renders in both the open
               dropdown and the closed trigger (Radix clones the selected
               label into the trigger). The choice persists per user via
-              PATCH /api/user/mode. */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="inline-flex">
-                <Select value={mode} onValueChange={(v) => void handleModeChange(v)} disabled={modeBusy}>
-                  <SelectTrigger
-                    size="sm"
-                    aria-label="Provider mode — Demo or Live"
-                    className={
-                      mode === 'LIVE'
-                        ? "h-8 border-emerald-500/50 bg-emerald-500/10 px-2.5 font-mono text-[11px] font-extrabold tracking-wide text-emerald-300 shadow-none ring-1 ring-emerald-400/20 hover:bg-emerald-500/15 focus-visible:ring-emerald-400/60 [&_svg:not([class*='text-'])]:text-emerald-400/70"
-                        : "h-8 border-amber-500/40 bg-amber-500/10 px-2.5 font-mono text-[11px] font-semibold text-amber-300 shadow-none hover:bg-amber-500/15 focus-visible:ring-amber-400/60 [&_svg:not([class*='text-'])]:text-amber-400/70"
-                    }
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="DEMO" className="text-amber-700 dark:text-amber-300">
-                      <span className="relative mr-1.5 flex h-1.5 w-1.5 shrink-0">
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
-                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-300" />
-                      </span>
-                      {t('app.demo_mode')}
-                    </SelectItem>
-                    <SelectItem value="LIVE" className="text-emerald-700 dark:text-emerald-300">
-                      <span className="relative mr-1.5 flex h-2 w-2 shrink-0">
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                        <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
-                      </span>
-                      {t('app.live_mode')}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent
-              side="bottom"
-              align="end"
-              className="max-w-[300px] space-y-1.5 border border-zinc-700 bg-zinc-900 px-3 py-2.5 text-left text-zinc-200 [&>svg]:bg-zinc-900 [&>svg]:fill-zinc-900"
+              PATCH /api/user/mode.
+
+              NOTE: this Select is deliberately NOT wrapped in a Tooltip —
+              nesting a Radix Select inside TooltipTrigger makes the
+              hoverable TooltipContent (z-50) sit over the open dropdown
+              portal and re-open on focus when the Select closes, which
+              swallows pointer clicks on the options. The explanation lives
+              in the trigger's title attribute instead. */}
+          {sessionStatus === 'authenticated' ? (
+            <Select value={mode} onValueChange={(v) => void handleModeChange(v)} disabled={modeBusy}>
+              <SelectTrigger
+                size="sm"
+                aria-label="Provider mode — Demo or Live"
+                title={
+                  'Demo Mode — flights, fares and bookings are simulated (deterministic fixture). '
+                  + 'Live Mode — real airline availability, fares and sandbox bookings via the Atlas CLI.'
+                  + (atlasStatus && !atlasStatus.available
+                    ? ' Live mode requires the Atlas CLI — unavailable on this deployment.'
+                    : '')
+                }
+                className={
+                  mode === 'LIVE'
+                    ? "h-8 border-emerald-500/50 bg-emerald-500/10 px-2.5 font-mono text-[11px] font-extrabold tracking-wide text-emerald-300 shadow-none ring-1 ring-emerald-400/20 hover:bg-emerald-500/15 focus-visible:ring-emerald-400/60 [&_svg:not([class*='text-'])]:text-emerald-400/70"
+                    : "h-8 border-amber-500/40 bg-amber-500/10 px-2.5 font-mono text-[11px] font-semibold text-amber-300 shadow-none hover:bg-amber-500/15 focus-visible:ring-amber-400/60 [&_svg:not([class*='text-'])]:text-amber-400/70"
+                }
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="DEMO" className="text-amber-700 dark:text-amber-300">
+                  <span className="relative mr-1.5 flex h-1.5 w-1.5 shrink-0">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-300" />
+                  </span>
+                  {t('app.demo_mode')}
+                </SelectItem>
+                <SelectItem value="LIVE" className="text-emerald-700 dark:text-emerald-300">
+                  <span className="relative mr-1.5 flex h-2 w-2 shrink-0">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-300 shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+                  </span>
+                  {t('app.live_mode')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          ) : (
+            /* Signed-out visitors get a read-only mode badge (PATCH
+               /api/user/mode requires auth); mode mirrors the provider the
+               server resolved for the current trip. */
+            <span
+              title="Sign in to switch between Demo and Live mode."
+              className={
+                mode === 'LIVE'
+                  ? 'inline-flex h-8 items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2.5 font-mono text-[11px] font-semibold text-emerald-300'
+                  : 'inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 font-mono text-[11px] font-semibold text-amber-300'
+              }
             >
-              <p className="text-[11px] leading-snug">
-                <span className="font-semibold text-amber-300">Demo Mode</span>
-                <span className="text-zinc-400"> — flights, fares and bookings are simulated (deterministic fixture).</span>
-              </p>
-              <p className="text-[11px] leading-snug">
-                <span className="font-semibold text-emerald-300">Live Mode</span>
-                <span className="text-zinc-400"> — real airline availability, fares and sandbox bookings via the Atlas CLI.</span>
-              </p>
-              {atlasStatus && !atlasStatus.available && (
-                <p className="border-t border-zinc-800 pt-1.5 text-[10px] leading-snug text-amber-400/90">
-                  Live mode requires the Atlas CLI — unavailable on this deployment.
-                </p>
-              )}
-            </TooltipContent>
-          </Tooltip>
+              <span className={`h-1.5 w-1.5 rounded-full ${mode === 'LIVE' ? 'bg-emerald-300' : 'bg-amber-300'}`} />
+              {mode === 'LIVE' ? t('app.live_mode') : t('app.demo_mode')}
+            </span>
+          )}
 
           <span
             className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold uppercase tracking-wider ${tone.bg} ${tone.text}`}
@@ -354,6 +384,66 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
             <span className="hidden sm:inline">Reset</span>
             <kbd className="hidden font-mono text-[10px] text-zinc-500 lg:inline">R</kbd>
           </Button>
+
+          {/* User profile menu — signed-in identity, live mode state and
+              sign-out. Only rendered for authenticated sessions. */}
+          {sessionStatus === 'authenticated' && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="User menu"
+                  title="Account and sign out"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 transition-all hover:border-amber-400/50 hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 active:scale-[0.97] data-[state=open]:border-amber-400/50 data-[state=open]:bg-zinc-800"
+                >
+                  <Avatar className="h-6 w-6">
+                    <AvatarFallback className="bg-gradient-to-br from-amber-400 to-orange-600 text-[10px] font-extrabold text-neutral-950">
+                      {(session?.user?.name || session?.user?.email || '?')
+                        .split(/\s+/)
+                        .slice(0, 2)
+                        .map((w) => w[0]?.toUpperCase() ?? '')
+                        .join('') || '?'}
+                    </AvatarFallback>
+                  </Avatar>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="w-64 border-zinc-700 bg-zinc-900 text-zinc-200"
+              >
+                <DropdownMenuLabel className="space-y-0.5">
+                  <p className="truncate text-sm font-semibold text-zinc-100">
+                    {session?.user?.name || 'Unnamed user'}
+                  </p>
+                  <p className="truncate text-xs font-normal text-zinc-400">
+                    {session?.user?.email}
+                  </p>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-zinc-800" />
+                <div className="flex items-center justify-between px-2 py-1.5 text-xs">
+                  <span className="text-zinc-400">Provider mode</span>
+                  <span
+                    className={
+                      mode === 'LIVE'
+                        ? 'inline-flex items-center gap-1.5 font-mono font-bold text-emerald-300'
+                        : 'inline-flex items-center gap-1.5 font-mono font-bold text-amber-300'
+                    }
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${mode === 'LIVE' ? 'bg-emerald-300' : 'bg-amber-300'}`} />
+                    {mode === 'LIVE' ? t('app.live_mode') : t('app.demo_mode')}
+                  </span>
+                </div>
+                <DropdownMenuSeparator className="bg-zinc-800" />
+                <DropdownMenuItem
+                  onSelect={() => void signOut({ callbackUrl: '/login' })}
+                  className="gap-2 text-sm text-red-300 focus:bg-red-500/10 focus:text-red-200 [&_svg]:text-red-300"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
 

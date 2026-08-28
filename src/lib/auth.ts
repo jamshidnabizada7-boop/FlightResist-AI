@@ -60,10 +60,20 @@ export const authOptions: NextAuthOptions = {
   session: { strategy: 'jwt' },
 
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.userId = user.id;
         token.preferredMode = user.preferredMode;
+      }
+      // Client-initiated session update — the header calls
+      // `update({ preferredMode })` right after PATCH /api/user/mode succeeds,
+      // so the new mode is merged into the JWT here and survives page reloads
+      // for the rest of this login session (no re-login needed).
+      if (trigger === 'update' && typeof session?.preferredMode === 'string') {
+        const next = session.preferredMode.trim().toUpperCase();
+        if (next === 'DEMO' || next === 'LIVE') {
+          token.preferredMode = next;
+        }
       }
       return token;
     },

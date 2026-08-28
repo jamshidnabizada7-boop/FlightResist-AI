@@ -5,12 +5,13 @@
  * for pipeline provider selection (disruption trigger, recovery execution).
  *
  * Why read the DB instead of just `session.user.preferredMode`? The session
- * token carries `preferredMode` from sign-in time and is NOT refreshed when
- * the user switches modes — PATCH /api/user/mode updates only the database
- * (the auth callbacks are intentionally frozen). Reading the fresh column
- * by the session's user id is what actually connects the UI choice to the
- * provider used; the token value is only a fallback for DB-less deployments
- * (where login is impossible anyway, so in practice it is never reached).
+ * token's `preferredMode` is refreshed only when the header calls the
+ * NextAuth client `update()` right after PATCH /api/user/mode succeeds —
+ * if that call ever fails, the token can lag behind the DB. Reading the
+ * fresh column by the session's user id is what authoritatively connects
+ * the UI choice to the provider used; the token value is only a fallback
+ * for DB-less deployments (where login is impossible anyway, so in practice
+ * it is never reached).
  */
 
 import { getServerSession } from 'next-auth';
