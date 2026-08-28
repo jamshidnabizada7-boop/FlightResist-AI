@@ -273,6 +273,13 @@ button,
     0 0 64px rgb(251 191 36 / 0.18);
 }
 
+/* emerald halo for the live provider PNR (Atlas live mode) */
+.fr-glow-emerald {
+  text-shadow:
+    0 0 22px rgb(52 211 153 / 0.45),
+    0 0 64px rgb(52 211 153 / 0.18);
+}
+
 /* execution modal scrim: deeper + slight blur on larger screens only */
 [data-slot="dialog-overlay"],
 [data-slot="alert-dialog-overlay"] {

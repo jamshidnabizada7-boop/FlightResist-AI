@@ -46,7 +46,11 @@ export function applyHardConstraints(
       reason: 'unsafe_connection',
       label: 'Minimum connection time',
       rule: `Layover ≥ ${constraints.mctMin} min (MCT safety floor)`,
-      test: (c) => c.minConnectionMin == null || c.minConnectionMin < constraints.mctMin,
+      // A direct flight (stops === 0) has no layover — vacuously safe. A null
+      // connection time on a CONNECTING itinerary is missing data → unsafe.
+      // (Pruning null outright wrongly rejected every nonstop, including the
+      // canonical Option C finalist — see fixture.ts / optimizer.ts docstrings.)
+      test: (c) => c.stops > 0 && (c.minConnectionMin == null || c.minConnectionMin < constraints.mctMin),
     },
     {
       reason: 'baggage_incompatible',

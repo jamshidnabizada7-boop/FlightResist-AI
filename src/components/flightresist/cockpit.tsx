@@ -27,7 +27,7 @@ import type { ExecutionResult, TripImpactGraph, TripState } from '@/lib/flightre
 import { t } from '@/lib/i18n';
 
 export function FlightResistCockpit() {
-  const { trip, events, sse, busy, connectionWarning, triggerDisruption, confirmRecovery, resetSession } = useFlightResist();
+  const { trip, events, sse, busy, connectionWarning, triggerDisruption, confirmRecovery, resetSession, refresh } = useFlightResist();
   const { toast } = useToast();
   const shouldReduceMotion = useReducedMotion();
 
@@ -461,6 +461,7 @@ export function FlightResistCockpit() {
           resetBusy={busy.reset}
           onExportCsv={handleExportCsv}
           onHelp={() => setHelpOpen((o) => !o)}
+          onModeChanged={refresh}
         />
 
         <main id="main-content" className="mx-auto w-full max-w-7xl flex-1 space-y-4 px-4 py-5 sm:px-6">
@@ -656,6 +657,7 @@ export function FlightResistCockpit() {
                 ref={recoveryOptionsRef}
                 options={analysis?.options ?? null}
                 state={trip.state}
+                providerMode={trip.provider_mode === 'ATLAS_SANDBOX' ? 'ATLAS_SANDBOX' : 'DEMO'}
                 selectedId={selectedOptionId ?? ''}
                 onSelect={(id) => {
                   if (analysisKey) setSelection({ key: analysisKey, id });

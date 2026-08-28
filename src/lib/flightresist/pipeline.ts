@@ -10,15 +10,17 @@
  * provider and LLM durations are genuine wall-clock measurements.
  */
 
-import { db } from '@/lib/db';
+import { db, dbAvailable } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { applyHardConstraints } from './constraints';
 import { generateExplanation } from './llm';
-import { ITINERARY, TRIP_ID } from './itinerary';
+import { ITINERARY } from './itinerary';
+import { getDynamicSearchDate } from '@/lib/utils';
 import { buildDisruptionImpactGraph } from './impact-graph';
 import { rankOptions } from './optimizer';
 import { getActiveProvider } from './providers';
-import { emitEvent, getSession, setState } from './store';
+import { withSessionContext } from './session-id';
+import { emitEvent, getSession, persistenceKey, resolveSessionId, setState } from './store';
 import { buildOptionWhy, buildFactPayload } from './why-engine';
 import type {
   DisruptionEvent,
@@ -36,6 +38,21 @@ const pacing = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export async function triggerDisruption(
   disruption: DisruptionEvent,
+  sessionId?: string,
+  userMode?: string,
+): Promise<{ status: string; state: string }> {
+  // Session scoping: establish the caller's session as the ambient context so
+  // every store/bus call below — including the fire-and-forget analysis
+  // pipeline it starts — resolves to this session (explicit arg → ambient →
+  // shared default for cookie-less clients).
+  return withSessionContext(resolveSessionId(sessionId), () =>
+    triggerDisruptionImpl(disruption, userMode),
+  );
+}
+
+async function triggerDisruptionImpl(
+  disruption: DisruptionEvent,
+  userMode?: string,
 ): Promise<{ status: string; state: string }> {
   const s = getSession();
   if (s.state !== 'NORMAL') {
@@ -49,7 +66,7 @@ export async function triggerDisruption(
   // race where two rapid POSTs both pass the guards above.
   s.analysisRunning = true;
 
-  const { info } = await getActiveProvider();
+  const { info } = await getActiveProvider(userMode);
 
   // Webhook intake — SUPERVISOR reacts to the disruption event.
   emitEvent(
@@ -66,8 +83,10 @@ export async function triggerDisruption(
 
   // Fire-and-forget: the SSE stream surfaces progress live; the caller gets an
   // immediate DISRUPTION_TRIGGERED / ANALYZING response per the API contract.
-  logger.info('Pipeline started', { disruption: disruption.event, flight: disruption.flightNumber });
-  void runRecoveryPipeline(disruption).catch((err: unknown) => {
+  // The user's provider mode rides along so the analysis pipeline searches
+  // through the same provider the user picked in the UI.
+  logger.info('Pipeline started', { disruption: disruption.event, flight: disruption.flightNumber, userMode: userMode ?? 'env-default' });
+  void runRecoveryPipeline(disruption, undefined, userMode).catch((err: unknown) => {
     const e = err instanceof Error ? err : new Error(String(err));
     logger.error('Pipeline crashed', { message: e.message, stack: e.stack, name: e.name });
     s.analysisRunning = false;
@@ -92,11 +111,24 @@ export async function triggerDisruption(
   return { status: 'DISRUPTION_TRIGGERED', state: 'ANALYZING' };
 }
 
-export async function runRecoveryPipeline(disruption: DisruptionEvent): Promise<RecoveryAnalysis> {
+export async function runRecoveryPipeline(
+  disruption: DisruptionEvent,
+  sessionId?: string,
+  userMode?: string,
+): Promise<RecoveryAnalysis> {
+  return withSessionContext(resolveSessionId(sessionId), () =>
+    runRecoveryPipelineImpl(disruption, userMode),
+  );
+}
+
+async function runRecoveryPipelineImpl(
+  disruption: DisruptionEvent,
+  userMode?: string,
+): Promise<RecoveryAnalysis> {
   const s = getSession();
   s.analysisRunning = true;
   const t0 = Date.now();
-  const { provider, info } = await getActiveProvider();
+  const { provider, info } = await getActiveProvider(userMode);
 
   try {
     await pacing(320);
@@ -165,12 +197,13 @@ export async function runRecoveryPipeline(disruption: DisruptionEvent): Promise<
     );
 
     t = Date.now();
-    const candidates = await provider.searchFlights('SIN', 'NRT', '2026-08-27');
+    const searchDate = getDynamicSearchDate();
+    const candidates = await provider.searchFlights('SIN', 'NRT', searchDate);
     const searchMs = Date.now() - t;
     emitEvent(
       'SEARCH',
       'search_flights',
-      `Tool Orchestrator → ${info.mode === 'DEMO' ? 'DemoProvider' : 'AtlasSandboxProvider'}.searchFlights(SIN → NRT, 2026-08-27)`,
+      `Tool Orchestrator → ${info.mode === 'DEMO' ? 'DemoProvider' : 'AtlasSandboxProvider'}.searchFlights(SIN → NRT, ${searchDate})`,
       `${candidates.length} candidates returned in ${searchMs}ms${info.mode === 'DEMO' ? ' (deterministic fixture inventory)' : ' (live Atlas sandbox)'}.`,
       'agent',
       searchMs,
@@ -382,9 +415,22 @@ export async function runRecoveryPipeline(disruption: DisruptionEvent): Promise<
 // Execution pipeline (requires explicit POST confirmation)
 // ---------------------------------------------------------------------------
 
-export async function executeRecovery(proposalId: string): Promise<ExecutionResult> {
+export async function executeRecovery(
+  proposalId: string,
+  sessionId?: string,
+  userMode?: string,
+): Promise<ExecutionResult> {
+  return withSessionContext(resolveSessionId(sessionId), () =>
+    executeRecoveryImpl(proposalId, userMode),
+  );
+}
+
+async function executeRecoveryImpl(
+  proposalId: string,
+  userMode?: string,
+): Promise<ExecutionResult> {
   const s = getSession();
-  const { provider, info } = await getActiveProvider();
+  const { provider, info } = await getActiveProvider(userMode);
 
   // --- Phase 6: Idempotency guard -------------------------------------------
   // Checked synchronously before any state transition or await.
@@ -555,24 +601,28 @@ export async function executeRecovery(proposalId: string): Promise<ExecutionResu
     // Phase 7: Persist to ledger — awaited so the entry is durable before the
     // HTTP response returns.  Eliminates the fire-and-forget race where tests
     // (and the UI) could read the ledger before the write committed.
-    await db.executionOrder
-      .create({
-        data: {
-          sessionId: TRIP_ID,
-          providerMode: provider.mode,
-          proposalId: option.id,
-          status: result.status,
-          reference: result.demoReference ?? result.orderId,
-          pnr: result.pnr,
-          fareKey: result.fareKey,
-          executionTimeMs,
-          steps: JSON.stringify(steps),
-        },
-      })
-      .catch((err: unknown) => {
-        const e = err instanceof Error ? err : new Error(String(err));
-        logger.error('Ledger persist failed', { message: e.message, stack: e.stack, name: e.name });
-      });
+    if (dbAvailable()) {
+      await db.executionOrder
+        .create({
+          data: {
+            // Session-scoped ledger: the default session keeps the legacy
+            // TRIP_ID persistence key; isolated sessions write under their own.
+            sessionId: persistenceKey(),
+            providerMode: provider.mode,
+            proposalId: option.id,
+            status: result.status,
+            reference: result.demoReference ?? result.orderId,
+            pnr: result.pnr,
+            fareKey: result.fareKey,
+            executionTimeMs,
+            steps: JSON.stringify(steps),
+          },
+        })
+        .catch((err: unknown) => {
+          const e = err instanceof Error ? err : new Error(String(err));
+          logger.error('Ledger persist failed', { message: e.message, stack: e.stack, name: e.name });
+        });
+    }
 
     return result;
   } catch (err) {
@@ -616,7 +666,11 @@ export async function executeRecovery(proposalId: string): Promise<ExecutionResu
 }
 
 /** Re-arm the approval gate after a FAILED execution (spec retry path). */
-export async function rearmApproval(): Promise<{ state: string }> {
+export async function rearmApproval(sessionId?: string): Promise<{ state: string }> {
+  return withSessionContext(resolveSessionId(sessionId), () => rearmApprovalImpl());
+}
+
+async function rearmApprovalImpl(): Promise<{ state: string }> {
   const s = getSession();
   const { info } = await getActiveProvider();
   if (s.state === 'FAILED') {

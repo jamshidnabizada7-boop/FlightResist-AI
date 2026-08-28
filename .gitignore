@@ -65,3 +65,10 @@ server.log
 
 # Skills directory
 /skills/
+.vercel
+
+# Temporary test artifacts & builds
+.vercel-tmp/
+tests/tmp-shots/
+tests/tmp-*.mjs
+db/custom.db

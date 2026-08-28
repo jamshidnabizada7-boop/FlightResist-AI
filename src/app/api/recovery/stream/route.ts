@@ -4,13 +4,19 @@
  * On connect: replays every persisted agent event (dedup by seq client-side),
  * then streams live events (agent / state / reset / snapshot) until the client
  * disconnects. Heartbeat comment every 15s keeps intermediaries from buffering.
+ *
+ * Session-scoped: subscriptions are namespaced by the caller's cookie-based
+ * session ID, so concurrent users only ever receive their own session's
+ * events. Cookie-less clients stream the shared default session.
  */
 
 import { logger } from '@/lib/logger';
 import { randomUUID } from 'crypto';
+import type { NextRequest } from 'next/server';
 import { currentTripResponse } from '@/lib/flightresist/api';
 import { getBus } from '@/lib/flightresist/bus';
 import { getSession } from '@/lib/flightresist/store';
+import { getSessionIdFromRequest } from '@/lib/flightresist/session-id';
 import type { AgentEvent, TripState } from '@/lib/flightresist/types';
 
 export const dynamic = 'force-dynamic';
@@ -18,13 +24,14 @@ export const runtime = 'nodejs';
 
 const HEARTBEAT_MS = 15_000;
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
+  const sessionId = getSessionIdFromRequest(req);
   const requestId = randomUUID();
   const log = logger.withRequestId(requestId);
-  log.info('SSE stream connect');
+  log.info('SSE stream connect', { sessionId });
 
-  const trip = await currentTripResponse();
-  const session = getSession();
+  const trip = await currentTripResponse(sessionId);
+  const session = getSession(sessionId);
   const bus = getBus();
   const encoder = new TextEncoder();
 
@@ -55,12 +62,12 @@ export async function GET(req: Request) {
         send('agent', e);
       }
 
-      const offAgent = bus.subscribe('agent', (e: AgentEvent) => send('agent', e));
-      const offState = bus.subscribe('state', (p: { from: TripState; to: TripState; atIso: string }) =>
+      const offAgent = bus.subscribe(sessionId, 'agent', (e: AgentEvent) => send('agent', e));
+      const offState = bus.subscribe(sessionId, 'state', (p: { from: TripState; to: TripState; atIso: string }) =>
         send('state', p),
       );
-      const offReset = bus.subscribe('reset', (p: { atIso: string }) => send('reset', p));
-      const offSnap = bus.subscribe('snapshot', (p: { state: TripState; riskScore: number }) =>
+      const offReset = bus.subscribe(sessionId, 'reset', (p: { atIso: string }) => send('reset', p));
+      const offSnap = bus.subscribe(sessionId, 'snapshot', (p: { state: TripState; riskScore: number }) =>
         send('snapshot', p),
       );
 

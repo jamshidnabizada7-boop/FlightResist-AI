@@ -41,14 +41,30 @@ interface StepDef {
   agent: string;
 }
 
-const STEP_DEFS: StepDef[] = [
-  { key: 'approval', title: 'Human approval received', detail: 'Explicit POST /api/recovery/confirm payload', icon: ShieldCheck, agent: 'SUPERVISOR' },
-  { key: 'verify_fare', title: 'Verify fare', detail: 'provider.verifyFare(fare_key)', icon: BadgeCheck, agent: 'TOOLS' },
-  { key: 'create_order', title: 'Create order', detail: 'provider.createAndPayOrder(…)', icon: Plane, agent: 'TOOLS' },
-  { key: 'authorize_payment', title: 'Authorize payment', detail: 'sandbox payment — demo wallet', icon: CreditCard, agent: 'TOOLS' },
-  { key: 'issue_ticket', title: 'Issue ticket', detail: 'simulated e-ticket reference', icon: Ticket, agent: 'TOOLS' },
-  { key: 'order_status', title: 'Confirm order status', detail: 'provider.getOrderStatus(order_id)', icon: BadgeCheck, agent: 'SUPERVISOR' },
-];
+/** Step definitions — the demo-specific details are swapped for real Atlas
+ *  wording when the provider runs live (mode = ATLAS_SANDBOX). */
+function stepDefs(live: boolean): StepDef[] {
+  return [
+    { key: 'approval', title: 'Human approval received', detail: 'Explicit POST /api/recovery/confirm payload', icon: ShieldCheck, agent: 'SUPERVISOR' },
+    { key: 'verify_fare', title: 'Verify fare', detail: 'provider.verifyFare(fare_key)', icon: BadgeCheck, agent: 'TOOLS' },
+    { key: 'create_order', title: 'Create order', detail: 'provider.createAndPayOrder(…)', icon: Plane, agent: 'TOOLS' },
+    {
+      key: 'authorize_payment',
+      title: 'Authorize payment',
+      detail: live ? 'order pay — real payment through Atlas' : 'sandbox payment — demo wallet',
+      icon: CreditCard,
+      agent: 'TOOLS',
+    },
+    {
+      key: 'issue_ticket',
+      title: 'Issue ticket',
+      detail: live ? 'airline PNR issued by the provider' : 'simulated e-ticket reference',
+      icon: Ticket,
+      agent: 'TOOLS',
+    },
+    { key: 'order_status', title: 'Confirm order status', detail: 'provider.getOrderStatus(order_id)', icon: BadgeCheck, agent: 'SUPERVISOR' },
+  ];
+}
 
 const EVENT_TO_STEP: Record<string, number> = {
   verify_fare: 1,
@@ -78,6 +94,11 @@ export function ExecutionModal({
     }
     return map;
   }, [events, startSeq]);
+
+  // Live (real Atlas flights) vs demo — prefer the executed result's recorded
+  // mode, falling back to the active provider while execution is in flight.
+  const isLive = (result?.providerMode ?? provider.mode) === 'ATLAS_SANDBOX';
+  const defs = useMemo(() => stepDefs(isLive), [isLive]);
 
   const completed = result !== null && !executing;
   const failed = result?.status === 'FAILED';
@@ -109,7 +130,7 @@ export function ExecutionModal({
   };
 
   // presentational: how many steps are complete (drives the emerald progress rail)
-  const doneCount = STEP_DEFS.reduce((acc, _, i) => acc + (stepState(i) === 'done' ? 1 : 0), 0);
+  const doneCount = defs.reduce((acc, _, i) => acc + (stepState(i) === 'done' ? 1 : 0), 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -120,10 +141,21 @@ export function ExecutionModal({
         <div className="relative overflow-hidden border-b border-zinc-800 px-5 py-4">
           <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-amber-500/10 blur-3xl" />
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base font-bold">
+            <DialogTitle className="flex flex-wrap items-center gap-2 text-base font-bold">
               <Zap className="h-5 w-5 text-amber-400" />
               {completed ? (failed ? 'Execution Failed' : 'Recovery Executed') : 'Executing Recovery'}
               {option && <span className="text-zinc-400">— Option {option.label}</span>}
+              <span
+                className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${
+                  isLive
+                    ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
+                    : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                }`}
+                title={isLive ? 'Live mode — real booking through the Atlas provider' : 'Demo mode — simulated booking, no real payment'}
+              >
+                {isLive && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />}
+                {isLive ? 'LIVE' : 'DEMO'}
+              </span>
             </DialogTitle>
             <DialogDescription className="font-mono text-[11px] text-zinc-500">
               {provider.badge} · {provider.label}
@@ -141,7 +173,7 @@ export function ExecutionModal({
             animate={{ scaleY: doneCount / 6 }}
             transition={{ duration: 0.5, ease: 'easeOut' }}
           />
-          {STEP_DEFS.map((def, i) => {
+          {defs.map((def, i) => {
             const st = stepState(i);
             const ev = liveSteps.get(i);
             const duration = stepDuration(i);
@@ -236,14 +268,24 @@ export function ExecutionModal({
                 <div className="relative mt-3 overflow-hidden rounded-lg px-2 py-2 text-center">
                   <motion.div
                     aria-hidden
-                    className="pointer-events-none absolute left-1/2 top-1/2 h-20 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-500/15 blur-2xl"
+                    className={`pointer-events-none absolute left-1/2 top-1/2 h-20 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full blur-2xl ${
+                      isLive ? 'bg-emerald-500/15' : 'bg-amber-500/15'
+                    }`}
                     animate={{ scale: [1, 1.3, 1], opacity: [0.4, 0.85, 0.4] }}
                     transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
                   />
                   <div className="relative text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
-                    {result.pnr ? 'Provider PNR' : 'Simulated reference (demo mode)'}
+                    {isLive
+                      ? result.pnr
+                        ? 'Live booking reference — real PNR from Atlas'
+                        : 'Live booking reference'
+                      : 'Simulated reference (demo mode)'}
                   </div>
-                  <div className="fr-glow-amber relative mt-1 font-mono text-2xl font-extrabold tracking-[0.16em] text-amber-300">
+                  <div
+                    className={`relative mt-1 font-mono text-2xl font-extrabold tracking-[0.16em] ${
+                      isLive ? 'fr-glow-emerald text-emerald-300' : 'fr-glow-amber text-amber-300'
+                    }`}
+                  >
                     {result.pnr ?? result.demoReference ?? '—'}
                   </div>
                   <div className="relative mt-1 font-mono text-[10.5px] tabular-nums text-zinc-500">
@@ -251,13 +293,24 @@ export function ExecutionModal({
                   </div>
                 </div>
 
-                <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-2.5 text-center">
-                  <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-amber-400">
+                <div
+                  className={`mt-3 rounded-lg border p-2.5 text-center ${
+                    isLive
+                      ? 'border-emerald-500/25 bg-emerald-500/[0.06]'
+                      : 'border-amber-500/25 bg-amber-500/[0.06]'
+                  }`}
+                >
+                  <div
+                    className={`font-mono text-[10px] font-bold uppercase tracking-widest ${
+                      isLive ? 'text-emerald-400' : 'text-amber-400'
+                    }`}
+                  >
                     {provider.badge}
                   </div>
                   <p className="mt-1 text-[10.5px] leading-relaxed text-zinc-500">
-                    Simulated execution — no real booking, no real payment, no fabricated PNR.
-                    {result.pnr ? '' : ' A live Atlas sandbox would return a real order id + PNR here.'}
+                    {isLive
+                      ? 'Live execution — real booking through the Atlas provider: real order id and real PNR returned by the provider.'
+                      : 'Simulated execution — no real booking, no real payment, no fabricated PNR. A live Atlas sandbox would return a real order id + PNR here.'}
                   </p>
                 </div>
               </>

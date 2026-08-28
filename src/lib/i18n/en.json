@@ -2,7 +2,7 @@
   "app.title": "FlightResist",
   "app.loading": "Loading...",
   "app.demo_mode": "Demo Mode",
-  "app.sandbox_mode": "Sandbox Mode",
+  "app.live_mode": "LIVE — Real Flights",
   "app.connected": "Live",
   "app.disconnected": "Offline",
 
@@ -41,6 +41,7 @@
 
   "confirm_dialog.title": "Confirm Recovery Booking",
   "confirm_dialog.warning": "This will initiate the booking process.",
+  "confirm_dialog.live_warning": "This will search real airline availability — real fares, real seats, and a real booking through the Atlas provider.",
   "confirm_dialog.cancel": "Cancel",
   "confirm_dialog.confirm": "Confirm & Book",
 

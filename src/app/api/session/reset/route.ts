@@ -10,10 +10,19 @@ import { rateLimit } from '@/lib/rate-limit';
 import { currentTripResponse } from '@/lib/flightresist/api';
 import { forceReset } from '@/lib/flightresist/store';
 import { getActiveProvider } from '@/lib/flightresist/providers';
+import { getSessionIdFromRequest, withSessionContext } from '@/lib/flightresist/session-id';
+import { resolveUserMode } from '@/lib/user-mode';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  // Session scoping: reset only the caller's session (cookie-based session
+  // ID; cookie-less clients reset the shared default session).
+  const sessionId = getSessionIdFromRequest(req);
+  return withSessionContext(sessionId, () => postReset(req, sessionId));
+}
+
+async function postReset(req: NextRequest, sessionId: string): Promise<NextResponse> {
   const requestId = randomUUID();
   const log = logger.withRequestId(requestId);
   log.info('Session reset request');
@@ -30,11 +39,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { info } = await getActiveProvider();
+    // Honor the signed-in user's Demo/Live preference so a reset keeps the
+    // trip labeled with the provider the user actually picked in the UI.
+    const userMode = await resolveUserMode();
+    const { info } = await getActiveProvider(userMode);
     // Phase 7: await forceReset — DB operations are now sequential,
     // guaranteeing the reset is durable before the response is sent.
-    await forceReset(info.mode);
-    const trip = await currentTripResponse();
+    await forceReset(info.mode, sessionId);
+    const trip = await currentTripResponse(sessionId, userMode);
     log.info('Session reset complete', { state: trip.state });
     return NextResponse.json({ status: 'RESET', state: trip.state, ledger: trip.ledger });
   } catch (err) {

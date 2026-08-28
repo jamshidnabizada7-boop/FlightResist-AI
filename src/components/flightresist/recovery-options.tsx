@@ -14,6 +14,7 @@ import {
   Plane,
   Timer,
   Trophy,
+  Zap,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -28,7 +29,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { fmtLocalTime, fmtMinutes } from '@/lib/flightresist/format';
-import type { ScoredOption, TripState } from '@/lib/flightresist/types';
+import type { ProviderMode, ScoredOption, TripState } from '@/lib/flightresist/types';
 import { RECOVERY_WEIGHTS } from '@/lib/flightresist/types';
 import { toLocalTime } from '@/lib/flightresist/time-utils';
 import { t } from '@/lib/i18n';
@@ -46,6 +47,8 @@ function scoreLabel(score: number): { text: string; className: string } {
 interface Props {
   options: ScoredOption[] | null;
   state: TripState;
+  /** Server-resolved provider mode — drives live vs demo copy in the approval flow. */
+  providerMode: ProviderMode;
   selectedId: string;
   onSelect: (id: string) => void;
   onApprove: () => void;
@@ -271,8 +274,9 @@ function Chip({
 }
 
 export const RecoveryOptions = forwardRef<RecoveryOptionsHandle, Props>(
-function RecoveryOptions({ options, state, selectedId, onSelect, onApprove, approveBusy }, ref) {
+function RecoveryOptions({ options, state, providerMode, selectedId, onSelect, onApprove, approveBusy }, ref) {
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const live = providerMode === 'ATLAS_SANDBOX';
 
   useImperativeHandle(ref, () => ({
     openConfirm: () => {
@@ -393,9 +397,19 @@ function RecoveryOptions({ options, state, selectedId, onSelect, onApprove, appr
         <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
           <AlertDialogContent className="border-border bg-background text-foreground">
             <AlertDialogHeader>
-              <AlertDialogTitle className="flex items-center gap-2 text-amber-300">
+              <AlertDialogTitle className="flex flex-wrap items-center gap-2 text-amber-300">
                 <Trophy className="h-5 w-5" />
                 {t('confirm_dialog.title')}
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${
+                    live
+                      ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
+                      : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                  }`}
+                >
+                  {live && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />}
+                  {live ? t('app.live_mode') : t('app.demo_mode')}
+                </span>
               </AlertDialogTitle>
               <AlertDialogDescription asChild>
                 <div className="space-y-3 text-zinc-300">
@@ -439,13 +453,24 @@ function RecoveryOptions({ options, state, selectedId, onSelect, onApprove, appr
                             </span>
                           </div>
                         </div>
-                        <div className="flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/[0.04] px-3 py-2">
-                          <span className="mt-0.5 text-amber-400">⚠</span>
-                          <p className="text-[12px] leading-relaxed text-zinc-300">
-                            {t('confirm_dialog.warning')} We will rebook you on Option {opt.label} and
-                            mark your trip as <span className="font-bold text-zinc-100">recovered</span>.
-                          </p>
-                        </div>
+                        {live ? (
+                          <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-2">
+                            <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                            <p className="text-[12px] leading-relaxed text-zinc-300">
+                              <span className="font-bold text-emerald-300">Live mode:</span>{' '}
+                              {t('confirm_dialog.live_warning')} We will rebook you on Option {opt.label} and
+                              mark your trip as <span className="font-bold text-zinc-100">recovered</span>.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/[0.04] px-3 py-2">
+                            <span className="mt-0.5 text-amber-400">⚠</span>
+                            <p className="text-[12px] leading-relaxed text-zinc-300">
+                              {t('confirm_dialog.warning')} We will rebook you on Option {opt.label} and
+                              mark your trip as <span className="font-bold text-zinc-100">recovered</span>.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}

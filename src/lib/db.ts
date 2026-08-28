@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import path from 'node:path'
+import fs from 'node:fs'
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -41,3 +42,36 @@ export const db =
   })
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+
+/**
+ * Check if the SQLite database is available (file exists and is accessible).
+ * Returns false on Vercel's ephemeral filesystem where SQLite files don't persist.
+ * Use this to gracefully skip DB operations in serverless environments.
+ */
+let _dbAvailable: boolean | null = null;
+export function dbAvailable(): boolean {
+  if (_dbAvailable !== null) return _dbAvailable;
+  
+  // If no DATABASE_URL or it's not a file:// URL, assume unavailable
+  const url = process.env.DATABASE_URL;
+  if (!url || !url.startsWith('file:')) {
+    _dbAvailable = false;
+    return false;
+  }
+  
+  // Extract the file path from the URL
+  const filePath = url.replace(/^file:/, '');
+  const absolutePath = path.isAbsolute(filePath) 
+    ? filePath 
+    : path.resolve(projectRoot, filePath);
+  
+  try {
+    // Check if the file exists and is accessible
+    fs.accessSync(absolutePath, fs.constants.R_OK | fs.constants.W_OK);
+    _dbAvailable = true;
+  } catch {
+    _dbAvailable = false;
+  }
+  
+  return _dbAvailable;
+}

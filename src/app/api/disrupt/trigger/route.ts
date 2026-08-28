@@ -15,11 +15,21 @@ import { rateLimit } from '@/lib/rate-limit';
 import { currentTripResponse } from '@/lib/flightresist/api';
 import { CANONICAL_DISRUPTION, DELAY_DISRUPTION, ITINERARY, scenarioById } from '@/lib/flightresist/itinerary';
 import { triggerDisruption } from '@/lib/flightresist/pipeline';
+import { getSessionIdFromRequest, withSessionContext } from '@/lib/flightresist/session-id';
+import { resolveUserMode } from '@/lib/user-mode';
 import type { DisruptionEvent } from '@/lib/flightresist/types';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  // Session scoping: cookie-based session ID (cookie-less clients fall back
+  // to the shared default session). Established as the ambient context for
+  // the whole request so every store/bus/pipeline call resolves to it.
+  const sessionId = getSessionIdFromRequest(req);
+  return withSessionContext(sessionId, () => postDisruption(req, sessionId));
+}
+
+async function postDisruption(req: NextRequest, sessionId: string): Promise<NextResponse> {
   const requestId = randomUUID();
   const log = logger.withRequestId(requestId);
 
@@ -48,12 +58,18 @@ export async function POST(req: NextRequest) {
       body = {};
     }
 
+    // User-scoped provider selection (Task 32): the signed-in user's Demo/Live
+    // preference decides which provider the recovery pipeline searches
+    // through. Anonymous callers fall back to the env-based provider logic.
+    const userMode = await resolveUserMode();
+
     log.info('Disruption trigger request', {
       flight_number: body.flight_number,
       event: body.event,
       reason: body.reason,
       scenario: body.scenario,
       delay_minutes: body.delay_minutes,
+      userMode: userMode ?? 'env-default',
     });
 
     // Scenario shortcut: POST {"scenario": "delay", "delay_minutes": 90} or {"scenario": "cancellation"}
@@ -73,7 +89,7 @@ export async function POST(req: NextRequest) {
           detail: `CX520 (HKG 14:30 → NRT 19:45) delayed +${minutes}m; new arrival ${clock} JST. Ground transfer slot and evening buffer at risk — mission still recoverable.`,
         };
       }
-      const result = await triggerDisruption(disruption);
+      const result = await triggerDisruption(disruption, sessionId, userMode);
       log.info('Disruption trigger response', { status: result.status, state: result.state });
       return NextResponse.json(result);
     }
@@ -109,7 +125,7 @@ export async function POST(req: NextRequest) {
             : `${leg.flightNumber} (${leg.from} ${leg.depIso} → ${leg.to}) cancelled — downstream connections on this trip are impacted.`,
     };
 
-    const result = await triggerDisruption(disruption);
+    const result = await triggerDisruption(disruption, sessionId, userMode);
     log.info('Disruption trigger response', { status: result.status, state: result.state });
     return NextResponse.json(result);
   } catch (err) {
@@ -118,7 +134,7 @@ export async function POST(req: NextRequest) {
     const e = err instanceof Error ? err : new Error(message);
     log.error('Disruption trigger failed', { message: e.message, stack: e.stack, name: e.name });
     if (conflict) {
-      const current = await currentTripResponse();
+      const current = await currentTripResponse(sessionId);
       return NextResponse.json({ error: message, state: current.state }, { status: 409 });
     }
     return NextResponse.json({ error: message }, { status: 500 });

@@ -1,7 +1,9 @@
 /**
- * FlightResist AI 2.0 — SSE Event Bus
- * Single global EventEmitter (survives HMR via globalThis) that fans agent
- * events out to every open SSE connection.
+ * FlightResist AI 2.0 — SSE Event Bus (session-scoped)
+ *
+ * A single global EventEmitter (survives HMR via globalThis) fans agent events
+ * out to every open SSE connection — with every channel namespaced by session
+ * ID, so concurrent users only ever receive their own session's traffic.
  */
 
 import { EventEmitter } from 'node:events';
@@ -21,16 +23,30 @@ class TypedBus {
 
   constructor() {
     this.emitter = new EventEmitter();
-    this.emitter.setMaxListeners(50);
+    // Each SSE connection subscribes to 4 channels; with many concurrent
+    // sessions × connections the default cap of 10 listeners would trip
+    // warnings. Connections unsubscribe on disconnect, so listener counts
+    // are bounded by open-connection lifetime.
+    this.emitter.setMaxListeners(0);
   }
 
-  publish<K extends BusChannel>(channel: K, payload: BusPayloads[K]): void {
-    this.emitter.emit(channel, payload);
+  /** Composite channel key — the per-session namespace. */
+  private key(sessionId: string, channel: BusChannel): string {
+    return `fr:${sessionId}:${channel}`;
   }
 
-  subscribe<K extends BusChannel>(channel: K, listener: (payload: BusPayloads[K]) => void): () => void {
-    this.emitter.on(channel, listener as (...args: unknown[]) => void);
-    return () => this.emitter.off(channel, listener as (...args: unknown[]) => void);
+  publish<K extends BusChannel>(sessionId: string, channel: K, payload: BusPayloads[K]): void {
+    this.emitter.emit(this.key(sessionId, channel), payload);
+  }
+
+  subscribe<K extends BusChannel>(
+    sessionId: string,
+    channel: K,
+    listener: (payload: BusPayloads[K]) => void,
+  ): () => void {
+    const key = this.key(sessionId, channel);
+    this.emitter.on(key, listener as (...args: unknown[]) => void);
+    return () => this.emitter.off(key, listener as (...args: unknown[]) => void);
   }
 }
 

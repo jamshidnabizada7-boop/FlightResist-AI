@@ -11,20 +11,23 @@
  * In ATLAS_SANDBOX mode every count is computed from actual provider responses.
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
 import { randomUUID } from 'crypto';
 import { currentTripResponse } from '@/lib/flightresist/api';
+import { getSessionIdFromRequest } from '@/lib/flightresist/session-id';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // Session-scoped: return the caller's own deterministic analysis.
+  const sessionId = getSessionIdFromRequest(req);
   const requestId = randomUUID();
   const log = logger.withRequestId(requestId);
-  log.info('Recovery options request');
+  log.info('Recovery options request', { sessionId });
 
   try {
-    const trip = await currentTripResponse();
+    const trip = await currentTripResponse(sessionId);
     if (!trip.analysis) {
       return NextResponse.json(
         {

@@ -1,8 +1,15 @@
 /**
- * FlightResist AI 2.0 — Provider Selection (auto / demo / atlas)
+ * FlightResist AI 2.0 — Provider Selection (auto / demo / atlas / user)
  *
- * ATLAS_MODE=auto (default): runtime probe → CLI absent → DemoProvider.
- * The app NEVER depends exclusively on unavailable external services.
+ * Three selection layers (first match wins):
+ *   1. User preference (Task 32): the signed-in user's explicit choice,
+ *      threaded in by the disruption trigger / execution confirm routes.
+ *        DEMO → always the deterministic DemoProvider (even if the CLI exists).
+ *        LIVE → Atlas when the CLI probe + circuit breaker are healthy;
+ *               otherwise a loud error — never demo data under a LIVE badge.
+ *   2. ATLAS_MODE=demo → DemoProvider pinned by environment.
+ *   3. ATLAS_MODE=auto (default): runtime probe → CLI absent → DemoProvider.
+ *      The app NEVER depends exclusively on unavailable external services.
  *
  * Circuit breaker + failover: every AtlasSandboxProvider call runs through a
  * circuit breaker (3 consecutive failures → OPEN). While the circuit is OPEN,
@@ -163,9 +170,65 @@ function announceAtlasFailover(circuit: CircuitBreaker, probeDetail: string): vo
   );
 }
 
-export async function getActiveProvider(): Promise<ActiveProvider> {
-  const mode = (process.env.ATLAS_MODE ?? 'auto').toLowerCase();
+/**
+ * Select the travel provider.
+ *
+ * @param userMode optional signed-in user's preference ("DEMO" | "LIVE",
+ *        persisted via PATCH /api/user/mode). Undefined (anonymous caller, or
+ *        a route that is not user-scoped) falls back to the env-based logic
+ *        below, preserving the pre-existing behavior exactly.
+ */
+export async function getActiveProvider(userMode?: string): Promise<ActiveProvider> {
   const circuit = getAtlasCircuit();
+
+  // ---- Layer 1: explicit user preference (Task 32) ------------------------
+
+  if (userMode === 'DEMO') {
+    // User explicitly chose demo — deterministic fixture, even when the CLI
+    // exists and ATLAS_MODE would otherwise select Atlas.
+    return {
+      provider: getDemoProvider(),
+      info: {
+        mode: 'DEMO',
+        badge: '[USER: DETERMINISTIC DEMO]',
+        label: 'DemoProvider — pinned by user preference',
+        probeDetail: 'User selected Demo mode — deterministic fixture inventory, no live airline calls.',
+      },
+    };
+  }
+
+  if (userMode === 'LIVE') {
+    // User explicitly chose live — real inventory or an honest failure.
+    // Never silently fail over to demo data while the UI shows LIVE.
+    const probe = await probeAtlas();
+    if (!probe.available) {
+      throw new Error(
+        'Live mode unavailable on this deployment — the atlas-flight CLI is not installed. This environment (e.g. Vercel serverless) only supports Demo mode; use the self-hosted version for real flights.',
+      );
+    }
+    // Reading `isOpen` also performs the OPEN → HALF_OPEN transition once the
+    // cooldown has elapsed, re-admitting Atlas as a probe.
+    if (circuit.isOpen) {
+      throw new Error(
+        'Live mode temporarily unavailable — the Atlas circuit breaker is OPEN after repeated failures. Retry in ~30 s or switch back to Demo mode.',
+      );
+    }
+    // Atlas selected — re-arm the failover announcement for the next episode.
+    globalForCircuit.__flightresistAtlasFallbackAnnounced = false;
+    return {
+      provider: getGuardedAtlasProvider(),
+      info: {
+        mode: 'ATLAS_SANDBOX',
+        badge: '[USER: ATLAS SANDBOX]',
+        label: 'AtlasSandboxProvider — live mode selected by user',
+        probeDetail: probe.detail,
+      },
+    };
+  }
+
+  // ---- Layers 2–3: environment-based selection -----------------------------
+
+  const mode = (process.env.ATLAS_MODE ?? 'auto').toLowerCase();
 
   if (mode === 'demo') {
     return {
@@ -224,4 +287,15 @@ export async function getActiveProvider(): Promise<ActiveProvider> {
       probeDetail: probe.detail,
     },
   };
+}
+
+/**
+ * Cheap Atlas CLI availability probe for GET /api/atlas/status — the frontend
+ * uses it to warn before a user switches to Live mode. Runs the same cached
+ * runtime probe (60 s TTL) as provider selection, without the full provider /
+ * circuit-breaker setup, so it is safe to call frequently.
+ */
+export async function checkAtlasAvailability(): Promise<boolean> {
+  const probe = await probeAtlas();
+  return probe.available;
 }

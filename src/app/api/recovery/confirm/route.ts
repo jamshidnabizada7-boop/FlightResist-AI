@@ -17,10 +17,20 @@ import { randomUUID } from 'crypto';
 import { rateLimit } from '@/lib/rate-limit';
 import { currentTripResponse } from '@/lib/flightresist/api';
 import { executeRecovery } from '@/lib/flightresist/pipeline';
+import { getSessionIdFromRequest, withSessionContext } from '@/lib/flightresist/session-id';
+import { resolveUserMode } from '@/lib/user-mode';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  // Session scoping: cookie-based session ID (cookie-less clients fall back
+  // to the shared default session). Established as the ambient context for
+  // the whole request so every store/bus/pipeline call resolves to it.
+  const sessionId = getSessionIdFromRequest(req);
+  return withSessionContext(sessionId, () => postConfirm(req, sessionId));
+}
+
+async function postConfirm(req: NextRequest, sessionId: string): Promise<NextResponse> {
   const requestId = randomUUID();
   const log = logger.withRequestId(requestId);
 
@@ -43,7 +53,13 @@ export async function POST(req: NextRequest) {
       body = {};
     }
     const proposalId = typeof body.proposal_id === 'string' ? body.proposal_id.trim() : '';
-    log.info('Recovery confirm request', { proposalId });
+
+    // User-scoped provider selection (Task 32): execution must run through
+    // the same provider the user picked for the analysis — a LIVE-mode plan
+    // carries Atlas offer IDs that only the Atlas provider can verify/book.
+    const userMode = await resolveUserMode();
+
+    log.info('Recovery confirm request', { proposalId, userMode: userMode ?? 'env-default' });
 
     if (!proposalId) {
       return NextResponse.json({ error: 'proposal_id is required (string)' }, { status: 400 });
@@ -52,7 +68,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'proposal_id exceeds maximum length' }, { status: 400 });
     }
 
-    const result = await executeRecovery(proposalId);
+    const result = await executeRecovery(proposalId, sessionId, userMode);
     log.info('Recovery confirmed', { proposalId, status: result.status, providerMode: result.providerMode });
     return NextResponse.json({
       status: result.status,
@@ -76,7 +92,7 @@ export async function POST(req: NextRequest) {
     // 409 — state guard rejection (not a server error)
     const isGuardError = /AWAITING_APPROVAL|proposal_id|Unknown proposal|already in progress|already executed/i.test(message);
     if (isGuardError) {
-      const current = await currentTripResponse();
+      const current = await currentTripResponse(sessionId);
       return NextResponse.json(
         { error: message, state: current.state, idempotent: /already/i.test(message) },
         { status: 409 },

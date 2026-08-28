@@ -8,6 +8,11 @@
  *  - Tab visibility change triggers reconnection + data refresh.
  *  - Initial boot fetch has a 10 s abort timeout.
  *  - `connectionWarning` state exposed for UI banners.
+ *
+ * Session isolation: all requests are same-origin and carry the HttpOnly
+ * `fr-session` cookie automatically (fetch defaults + explicit
+ * `credentials: 'same-origin'`; EventSource sends same-origin cookies by
+ * default), so each browser tab is scoped to its own server-side session.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -76,6 +81,7 @@ export function useFlightResist() {
 
       const res = await fetch('/api/trip/current', {
         cache: 'no-store',
+        credentials: 'same-origin',
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -230,6 +236,7 @@ export function useFlightResist() {
       try {
         const res = await fetch('/api/disrupt/trigger', {
           method: 'POST',
+          credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(delayMinutes !== undefined ? { scenario, delay_minutes: delayMinutes } : { scenario }),
         });
@@ -262,6 +269,7 @@ export function useFlightResist() {
       try {
         const res = await fetch('/api/recovery/confirm', {
           method: 'POST',
+          credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ proposal_id: proposalId }),
         });
@@ -317,7 +325,7 @@ export function useFlightResist() {
   const resetSession = useCallback(async (): Promise<void> => {
     setBusy((b) => ({ ...b, reset: true }));
     try {
-      await fetch('/api/session/reset', { method: 'POST' });
+      await fetch('/api/session/reset', { method: 'POST', credentials: 'same-origin' });
       seenSeq.current = new Set();
       setEvents([]);
       await refresh();
