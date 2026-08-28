@@ -13,7 +13,9 @@ WORKDIR /app
 # Install dependencies
 COPY package.json bun.lock ./
 COPY prisma ./prisma/
-RUN bun install --frozen-lockfile
+# Note: no --frozen-lockfile here; bun.lock was generated on Windows and
+# must be allowed to resolve platform-specific (Linux) binaries in Docker.
+RUN bun install
 
 # Generate Prisma client
 RUN npx prisma generate
