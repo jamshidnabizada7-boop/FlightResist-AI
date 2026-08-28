@@ -44,27 +44,39 @@ export const db =
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
 
 /**
- * Check if the SQLite database is available (file exists and is accessible).
- * Returns false on Vercel's ephemeral filesystem where SQLite files don't persist.
- * Use this to gracefully skip DB operations in serverless environments.
+ * Check if the database is available.
+ * - `file:` URLs (SQLite): the file must exist and be readable/writable.
+ *   Returns false on Vercel's ephemeral filesystem where SQLite files don't
+ *   persist — use this to gracefully skip DB operations in serverless envs.
+ * - Any other non-empty URL (postgresql://, etc.): Postgres availability is
+ *   managed by the connection pool; errors surface at query time instead.
+ * - Empty/undefined DATABASE_URL: unavailable.
  */
 let _dbAvailable: boolean | null = null;
 export function dbAvailable(): boolean {
   if (_dbAvailable !== null) return _dbAvailable;
-  
-  // If no DATABASE_URL or it's not a file:// URL, assume unavailable
+
   const url = process.env.DATABASE_URL;
-  if (!url || !url.startsWith('file:')) {
+
+  // No DATABASE_URL configured — assume unavailable
+  if (!url) {
     _dbAvailable = false;
     return false;
   }
-  
+
+  // Non-file URLs (e.g. postgresql://) — the connection pool owns
+  // availability; report true and let query-time errors surface naturally.
+  if (!url.startsWith('file:')) {
+    _dbAvailable = true;
+    return true;
+  }
+
   // Extract the file path from the URL
   const filePath = url.replace(/^file:/, '');
-  const absolutePath = path.isAbsolute(filePath) 
-    ? filePath 
+  const absolutePath = path.isAbsolute(filePath)
+    ? filePath
     : path.resolve(projectRoot, filePath);
-  
+
   try {
     // Check if the file exists and is accessible
     fs.accessSync(absolutePath, fs.constants.R_OK | fs.constants.W_OK);
@@ -72,6 +84,6 @@ export function dbAvailable(): boolean {
   } catch {
     _dbAvailable = false;
   }
-  
+
   return _dbAvailable;
 }

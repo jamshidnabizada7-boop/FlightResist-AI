@@ -1,5 +1,8 @@
 import type { NextAuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
+import GoogleProvider from 'next-auth/providers/google';
+import GitHubProvider from 'next-auth/providers/github';
+import { PrismaAdapter } from '@next-auth/prisma-adapter';
 import bcrypt from 'bcryptjs';
 import { db, dbAvailable } from '@/lib/db';
 
@@ -9,6 +12,8 @@ declare module 'next-auth' {
       id: string;
       email: string;
       name?: string | null;
+      /** OAuth / uploaded avatar URL (NextAuth stores it in `token.picture`). */
+      image?: string | null;
       preferredMode: string;
       /** Whether the user's email has been verified (false until verified). */
       emailVerified: boolean;
@@ -20,6 +25,7 @@ declare module 'next-auth' {
     id: string;
     email: string;
     name?: string | null;
+    image?: string | null;
     preferredMode: string;
     emailVerified: boolean;
     createdAt: string;
@@ -36,6 +42,8 @@ declare module 'next-auth/jwt' {
 }
 
 export const authOptions: NextAuthOptions = {
+  adapter: PrismaAdapter(db),
+
   providers: [
     CredentialsProvider({
       name: 'Credentials',
@@ -51,6 +59,7 @@ export const authOptions: NextAuthOptions = {
           where: { email: credentials.email.toLowerCase() },
         });
         if (!user) return null;
+        if (!user.passwordHash) return null; // OAuth-only user, no password set
 
         const valid = await bcrypt.compare(credentials.password, user.passwordHash);
         if (!valid) return null;
@@ -65,17 +74,36 @@ export const authOptions: NextAuthOptions = {
         };
       },
     }),
+
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      allowDangerousEmailAccountLinking: true,
+    }),
+
+    GitHubProvider({
+      clientId: process.env.GITHUB_ID!,
+      clientSecret: process.env.GITHUB_SECRET!,
+      allowDangerousEmailAccountLinking: true,
+    }),
   ],
 
   session: { strategy: 'jwt' },
 
   callbacks: {
-    async jwt({ token, user, trigger, session }) {
+    async jwt({ token, user, account, trigger, session }) {
       if (user) {
         token.userId = user.id;
-        token.preferredMode = user.preferredMode;
+        // Credentials users come from `authorize` with every field set; OAuth
+        // users come from the adapter (DB row) where field shapes can differ —
+        // normalize so the token is always well-formed.
+        token.preferredMode = user.preferredMode || 'DEMO';
         token.emailVerified = Boolean(user.emailVerified);
-        token.createdAt = user.createdAt;
+        token.createdAt = user.createdAt || new Date().toISOString();
+        // OAuth emails are always verified by the provider (Google/GitHub).
+        if (account?.type === 'oauth') {
+          token.emailVerified = true;
+        }
       }
       // Client-initiated session update — the header calls
       // `update({ preferredMode })` right after PATCH /api/user/mode succeeds,
@@ -115,6 +143,7 @@ export const authOptions: NextAuthOptions = {
         ...session.user,
         id: token.userId,
         preferredMode: token.preferredMode,
+        image: token.picture || null,
         emailVerified: verified,
         createdAt: token.createdAt ?? '',
       };

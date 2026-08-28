@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -11,11 +11,13 @@ model User {
   id            String    @id @default(cuid())
   email         String    @unique
   name          String?
-  passwordHash  String
+  image         String?
+  passwordHash  String?
   emailVerified DateTime?
   preferredMode String    @default("DEMO") // "DEMO" or "LIVE"
   createdAt     DateTime  @default(now())
   sessions      Session[]
+  accounts      Account[]
   trips         TripSession[]
 }
 
@@ -33,6 +35,27 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// OAuth account linking (NextAuth PrismaAdapter) — one row per external
+// identity (Google, GitHub, ...) linked to a local user.
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
 }
 
 // FlightResist AI 2.0 — durable session state (in-memory store is live truth,

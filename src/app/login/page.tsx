@@ -8,6 +8,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { OAuthButtons } from "@/components/flightresist/oauth-buttons";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -88,6 +89,8 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit}>
           <CardContent className="flex flex-col gap-5">
+            <OAuthButtons />
+
             {error && (
               <div className="rounded-md border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">
                 {error}
