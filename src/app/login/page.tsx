@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { useEffect, useState } from "react";
+import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
@@ -9,13 +9,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { OAuthButtons } from "@/components/flightresist/oauth-buttons";
+import { OAuthErrorAlert } from "@/components/flightresist/oauth-error-alert";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { status: authStatus } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Redirect already-authenticated users away from the login page.
+  useEffect(() => {
+    if (authStatus === "authenticated") {
+      router.push("/");
+    }
+  }, [authStatus, router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -90,6 +99,8 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit}>
           <CardContent className="flex flex-col gap-5">
             <OAuthButtons />
+
+            <OAuthErrorAlert />
 
             {error && (
               <div className="rounded-md border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">

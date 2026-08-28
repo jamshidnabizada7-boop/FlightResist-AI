@@ -9,7 +9,7 @@ export function OAuthButtons() {
   async function handleOAuth(provider: "google" | "github") {
     setLoadingProvider(provider);
     try {
-      await signIn(provider);
+      await signIn(provider, { callbackUrl: "/" });
     } catch {
       setLoadingProvider(null);
     }
