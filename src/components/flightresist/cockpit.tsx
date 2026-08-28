@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ChevronDown, ChevronRight, Keyboard, ListChecks, Plane, X } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+import { BadgeCheck, ChevronDown, ChevronRight, Keyboard, ListChecks, MailWarning, Plane, Plug, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useFlightResist } from '@/hooks/use-flightresist';
 import { AgentStream } from '@/components/flightresist/agent-stream';
@@ -28,6 +29,10 @@ import { t } from '@/lib/i18n';
 
 export function FlightResistCockpit() {
   const { trip, events, sse, busy, connectionWarning, triggerDisruption, confirmRecovery, resetSession, refresh } = useFlightResist();
+  const { data: session, status: sessionStatus } = useSession();
+  // Single normalized source of truth for email verification — the banner,
+  // dashboard chip and any other indicator all gate on this one boolean.
+  const emailVerified = session?.user?.emailVerified === true;
   const { toast } = useToast();
   const shouldReduceMotion = useReducedMotion();
 
@@ -38,6 +43,30 @@ export function FlightResistCockpit() {
   const [modalStartSeq, setModalStartSeq] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
   const [checklistOpen, setChecklistOpen] = useState(false);
+  // Post-login dashboard strip: Atlas connection chip + dismissible
+  // verify-email banner (local dismissal only — reappears next visit).
+  const [atlasAvailable, setAtlasAvailable] = useState<boolean | null>(null);
+  const [verifyBannerDismissed, setVerifyBannerDismissed] = useState(false);
+
+  // Probe Atlas availability once signed in — powers the dashboard strip chip.
+  useEffect(() => {
+    if (sessionStatus !== 'authenticated') return;
+    let cancelled = false;
+    fetch('/api/atlas/status', { credentials: 'same-origin' })
+      .then(async (res) => {
+        if (!res.ok) return { available: false };
+        return (await res.json()) as { available: boolean };
+      })
+      .then((data) => {
+        if (!cancelled) setAtlasAvailable(Boolean(data.available));
+      })
+      .catch(() => {
+        if (!cancelled) setAtlasAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionStatus]);
   const optionsAnchorRef = useRef<HTMLDivElement>(null);
   const recoveryOptionsRef = useRef<RecoveryOptionsHandle>(null);
   const lastAutoScrollKey = useRef<string | null>(null);
@@ -84,6 +113,7 @@ export function FlightResistCockpit() {
   // --- Pipeline timeout detection: warn if ANALYZING hangs ---
   useEffect(() => {
     if (trip?.state !== 'ANALYZING') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the warning must clear synchronously the moment the pipeline leaves ANALYZING, alongside the timer cleanup below.
       setAnalysisWarning(null);
       if (analysisTimerRef.current) clearTimeout(analysisTimerRef.current);
       if (analysisTimer2Ref.current) clearTimeout(analysisTimer2Ref.current);
@@ -295,6 +325,7 @@ export function FlightResistCockpit() {
 
   // Jump-to-Approval: show floating button when recovery-options is out of view
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the button must hide synchronously when the trip leaves the approval gate, before the observer is (re)attached.
     if (!trip || trip.state !== 'AWAITING_APPROVAL') { setShowJumpBtn(false); return; }
     const el = document.getElementById('recovery-options');
     if (!el) return;
@@ -464,7 +495,71 @@ export function FlightResistCockpit() {
           onModeChanged={refresh}
         />
 
+        {/* Unverified email banner — slim, dismissible, signed-in only */}
+        {sessionStatus === 'authenticated' && !emailVerified && !verifyBannerDismissed && (
+          <div className="mx-auto w-full max-w-7xl px-4 pt-4 sm:px-6">
+            <div
+              role="status"
+              className="flex items-center gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-[12.5px] text-amber-200"
+            >
+              <MailWarning className="h-4 w-4 shrink-0 text-amber-400" />
+              <span>{t('banner.verify_email')}</span>
+              <button
+                type="button"
+                onClick={() => setVerifyBannerDismissed(true)}
+                aria-label="Dismiss verification reminder"
+                className="ml-auto rounded p-1 text-amber-300/70 transition-colors hover:bg-amber-500/10 hover:text-amber-200"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+
         <main id="main-content" className="mx-auto w-full max-w-7xl flex-1 space-y-4 px-4 py-5 sm:px-6">
+          {/* Post-login dashboard strip — mode, account and Atlas at a glance */}
+          {sessionStatus === 'authenticated' && (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-zinc-800/80 bg-zinc-900/60 px-4 py-2.5 backdrop-blur-sm">
+              <div className="flex items-baseline gap-2">
+                <span
+                  className={`font-mono text-lg font-extrabold leading-none tracking-widest ${
+                    trip.provider_mode !== 'DEMO' ? 'text-emerald-300' : 'text-amber-300'
+                  }`}
+                >
+                  {trip.provider_mode !== 'DEMO' ? 'LIVE' : 'DEMO'}
+                </span>
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+                  {trip.provider_mode !== 'DEMO' ? 'Live mode' : 'Demo mode'}
+                </span>
+              </div>
+              <span className="hidden h-5 w-px bg-zinc-800 sm:block" />
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold ${
+                  emailVerified
+                    ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300'
+                    : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+                }`}
+              >
+                <BadgeCheck className="h-3.5 w-3.5" />
+                {emailVerified ? 'Email verified' : 'Email not verified'}
+              </span>
+              <span className="hidden h-5 w-px bg-zinc-800 sm:block" />
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px] ${
+                  atlasAvailable === null
+                    ? 'border-zinc-700 bg-zinc-800/50 text-zinc-400'
+                    : atlasAvailable
+                      ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300'
+                      : 'border-zinc-700 bg-zinc-800/50 text-zinc-500'
+                }`}
+                title="Atlas CLI availability for Live mode (/api/atlas/status)"
+              >
+                <Plug className="h-3 w-3" />
+                {atlasAvailable === null ? 'Atlas: checking…' : atlasAvailable ? 'Atlas Connected' : 'Atlas Not available'}
+              </span>
+            </div>
+          )}
+
           {/* First-load entrance choreography: primary flow panels rise in fast,
               staggered — total under 0.7s so the live demo never waits. */}
           <motion.div
@@ -544,6 +639,7 @@ export function FlightResistCockpit() {
                 recovered={recovered}
                 onTrigger={(s, m) => void handleTrigger(s, m)}
                 triggerBusy={busy.trigger}
+                providerMode={trip.provider_mode}
               />
             </div>
           </motion.div>

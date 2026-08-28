@@ -5,6 +5,7 @@ import { signOut, useSession } from 'next-auth/react';
 import { useTheme } from 'next-themes';
 import { useCallback, useEffect, useState } from 'react';
 import {
+  BadgeCheck,
   Download,
   FileSpreadsheet,
   Keyboard,
@@ -13,9 +14,11 @@ import {
   Plane,
   Printer,
   RotateCcw,
+  Settings2,
   ShieldCheck,
   Sun,
   TriangleAlert,
+  UserRound,
   Wifi,
   WifiOff,
 } from 'lucide-react';
@@ -29,6 +32,13 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -89,6 +99,9 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
   const [modeOverride, setModeOverride] = useState<'DEMO' | 'LIVE' | null>(null);
   const [modeBusy, setModeBusy] = useState(false);
   const [liveBlockedOpen, setLiveBlockedOpen] = useState(false);
+  // Profile menu dialogs (Deliverable 3): account details + mode settings.
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [modeSettingsOpen, setModeSettingsOpen] = useState(false);
 
   // Probe Atlas availability once on mount — the selector uses it to warn
   // before the user can pick a Live mode this deployment cannot serve.
@@ -209,6 +222,14 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  // Account created date for the Profile dialog (only shown when known).
+  const createdLabel = (() => {
+    const iso = session?.user?.createdAt;
+    if (!iso) return null;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
+  })();
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-zinc-950/90 backdrop-blur-sm sm:backdrop-blur-md">
@@ -415,8 +436,17 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
                   <p className="truncate text-sm font-semibold text-zinc-100">
                     {session?.user?.name || 'Unnamed user'}
                   </p>
-                  <p className="truncate text-xs font-normal text-zinc-400">
-                    {session?.user?.email}
+                  <p className="flex items-center gap-1.5 text-xs font-normal text-zinc-400">
+                    <span className="truncate">{session?.user?.email}</span>
+                    {session?.user?.emailVerified ? (
+                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 px-1 py-px font-mono text-[9px] font-bold uppercase tracking-wider text-emerald-300">
+                        <BadgeCheck className="h-2.5 w-2.5" /> Verified
+                      </span>
+                    ) : (
+                      <span className="inline-flex shrink-0 items-center rounded border border-amber-500/40 bg-amber-500/10 px-1 py-px font-mono text-[9px] font-bold uppercase tracking-wider text-amber-300">
+                        Unverified
+                      </span>
+                    )}
                   </p>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator className="bg-zinc-800" />
@@ -433,6 +463,21 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
                     {mode === 'LIVE' ? t('app.live_mode') : t('app.demo_mode')}
                   </span>
                 </div>
+                <DropdownMenuSeparator className="bg-zinc-800" />
+                <DropdownMenuItem
+                  onSelect={() => setProfileOpen(true)}
+                  className="gap-2 text-sm text-zinc-200 focus:bg-zinc-800 focus:text-zinc-100"
+                >
+                  <UserRound className="h-4 w-4 text-zinc-400" />
+                  Profile
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => setModeSettingsOpen(true)}
+                  className="gap-2 text-sm text-zinc-200 focus:bg-zinc-800 focus:text-zinc-100"
+                >
+                  <Settings2 className="h-4 w-4 text-zinc-400" />
+                  Mode Settings
+                </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-zinc-800" />
                 <DropdownMenuItem
                   onSelect={() => void signOut({ callbackUrl: '/login' })}
@@ -470,6 +515,138 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Profile dialog (Deliverable 3) — account details for this session */}
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+        <DialogContent className="border-zinc-700 bg-zinc-900 text-zinc-200 sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-zinc-100">
+              <UserRound className="h-4 w-4 text-amber-400" />
+              Profile
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Account details for this session.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2.5 text-sm">
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800/70 bg-zinc-950/50 px-3 py-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Name</span>
+              <span className="truncate text-[13px] text-zinc-200">{session?.user?.name || 'Unnamed user'}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800/70 bg-zinc-950/50 px-3 py-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Email</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate text-[13px] text-zinc-200">{session?.user?.email}</span>
+                {session?.user?.emailVerified ? (
+                  <span className="inline-flex shrink-0 items-center gap-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 px-1 py-px font-mono text-[9px] font-bold uppercase tracking-wider text-emerald-300">
+                    <BadgeCheck className="h-2.5 w-2.5" /> Verified
+                  </span>
+                ) : (
+                  <span className="inline-flex shrink-0 items-center rounded border border-amber-500/40 bg-amber-500/10 px-1 py-px font-mono text-[9px] font-bold uppercase tracking-wider text-amber-300">
+                    Unverified
+                  </span>
+                )}
+              </span>
+            </div>
+            {createdLabel && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800/70 bg-zinc-950/50 px-3 py-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Account created</span>
+                <span className="text-[13px] text-zinc-200">{createdLabel}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800/70 bg-zinc-950/50 px-3 py-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Mode preference</span>
+              <span
+                className={`inline-flex items-center gap-1.5 font-mono text-[12px] font-bold ${
+                  mode === 'LIVE' ? 'text-emerald-300' : 'text-amber-300'
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${mode === 'LIVE' ? 'bg-emerald-300' : 'bg-amber-300'}`} />
+                {mode === 'LIVE' ? t('app.live_mode') : t('app.demo_mode')}
+              </span>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mode Settings dialog (Deliverable 3) — the same handleModeChange
+          flow as the header Select, so Live-blocked handling stays identical */}
+      <Dialog open={modeSettingsOpen} onOpenChange={setModeSettingsOpen}>
+        <DialogContent className="border-zinc-700 bg-zinc-900 text-zinc-200 sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-zinc-100">
+              <Settings2 className="h-4 w-4 text-amber-400" />
+              Mode Settings
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400">
+              Choose how FlightResist recovers your trip when disruption hits.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => {
+                setModeSettingsOpen(false);
+                void handleModeChange('DEMO');
+              }}
+              disabled={modeBusy}
+              className={`w-full rounded-lg border p-3 text-left transition-all active:scale-[0.98] disabled:opacity-60 ${
+                mode === 'DEMO'
+                  ? 'border-amber-400/60 bg-amber-500/[0.08] shadow-[0_0_16px_rgba(251,191,36,0.08)]'
+                  : 'border-zinc-800/70 bg-zinc-950/40 hover:border-zinc-700'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`h-1.5 w-1.5 rounded-full ${mode === 'DEMO' ? 'bg-amber-300' : 'bg-zinc-600'}`} />
+                <span className={`text-[13px] font-bold ${mode === 'DEMO' ? 'text-amber-200' : 'text-zinc-200'}`}>
+                  {t('app.demo_mode')}
+                </span>
+                {mode === 'DEMO' && (
+                  <span className="ml-auto rounded border border-amber-400/50 bg-amber-400/10 px-1.5 py-px font-mono text-[9px] font-bold uppercase tracking-wider text-amber-300">
+                    Active
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] leading-snug text-zinc-500">
+                Simulated flight data — deterministic fixture, safe for demos.
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setModeSettingsOpen(false);
+                void handleModeChange('LIVE');
+              }}
+              disabled={modeBusy}
+              className={`w-full rounded-lg border p-3 text-left transition-all active:scale-[0.98] disabled:opacity-60 ${
+                mode === 'LIVE'
+                  ? 'border-emerald-400/60 bg-emerald-500/[0.08] shadow-[0_0_16px_rgba(52,211,153,0.08)]'
+                  : 'border-zinc-800/70 bg-zinc-950/40 hover:border-zinc-700'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`h-1.5 w-1.5 rounded-full ${mode === 'LIVE' ? 'bg-emerald-300' : 'bg-zinc-600'}`} />
+                <span className={`text-[13px] font-bold ${mode === 'LIVE' ? 'text-emerald-200' : 'text-zinc-200'}`}>
+                  {t('app.live_mode')}
+                </span>
+                {mode === 'LIVE' && (
+                  <span className="ml-auto rounded border border-emerald-400/50 bg-emerald-400/10 px-1.5 py-px font-mono text-[9px] font-bold uppercase tracking-wider text-emerald-300">
+                    Active
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] leading-snug text-zinc-500">
+                Real flight data via the Atlas CLI — real availability, fares and sandbox bookings.
+              </p>
+            </button>
+            {atlasStatus && !atlasStatus.available && (
+              <p className="text-[11px] leading-snug text-zinc-500">
+                Live mode requires the Atlas CLI — unavailable on this deployment.
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* engine heartbeat line */}
       <motion.div

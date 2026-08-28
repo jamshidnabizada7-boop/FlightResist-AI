@@ -6,6 +6,13 @@
   "app.connected": "Live",
   "app.disconnected": "Offline",
 
+  "mode.demo_active": "Demo Mode — Simulated flight data",
+  "mode.live_active": "Connected to Atlas — Real flight data",
+  "mode.live_unavailable": "Atlas CLI not detected — install the atlas-flight CLI and set ATLAS credentials to enable Live mode",
+  "mode.checking_atlas": "Verifying Atlas connection…",
+
+  "banner.verify_email": "Please verify your email — check your inbox for the verification link.",
+
   "state.normal": "All Clear",
   "state.disruption_detected": "Disruption Found",
   "state.analyzing": "Finding Options",
