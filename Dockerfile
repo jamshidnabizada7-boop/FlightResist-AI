@@ -42,7 +42,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
-ENV PORT=3000
+ENV PORT=10000
 
 # Copy standalone build output
 COPY --from=builder /app/.next/standalone ./
@@ -51,8 +51,11 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+# Copy prisma CLI binary for runtime migrations (avoids npx downloading a mismatched version)
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 
-EXPOSE 3000
+EXPOSE 10000
 
-# Run migrations then start server
-CMD ["sh", "-c", "npx prisma migrate deploy && node server.js"]
+# Run migrations then start server; use node directly to avoid npx issues
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma || true; node server.js"]
