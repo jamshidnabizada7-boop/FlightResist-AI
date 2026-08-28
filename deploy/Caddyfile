@@ -1,0 +1,55 @@
+#	FlightResist AI — production reverse proxy (Alibaba Cloud ECS)
+#
+#	Caddy terminates TLS and forwards to the Next.js standalone server, which is
+#	bound to 127.0.0.1 so it is unreachable from the internet except through here.
+#
+#	The domain comes from the environment so this file needs no editing:
+#	    /etc/caddy/flightresist.env  ->  FLIGHTRESIST_DOMAIN=your.host.name
+#
+#	Certificates are issued automatically by Let's Encrypt on first request.
+#	That requires ports 80 and 443 open in the ECS security group and a DNS A
+#	record pointing at the instance's public IP.
+
+{$FLIGHTRESIST_DOMAIN} {
+	# Server-Sent Events must not be buffered or compressed, or the agent stream
+	# arrives in one lump at the end instead of streaming live. This block is
+	# declared before the catch-all so it wins.
+	@sse path /api/recovery/stream
+	handle @sse {
+		reverse_proxy 127.0.0.1:3000 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	# Compress everything except the event stream matched above.
+	encode {
+		match {
+			header Content-Type text/html*
+			header Content-Type text/css*
+			header Content-Type text/plain*
+			header Content-Type application/json*
+			header Content-Type application/javascript*
+			header Content-Type image/svg+xml*
+		}
+		zstd gzip
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/flightresist.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}

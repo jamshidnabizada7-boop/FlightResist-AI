@@ -1,0 +1,58 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// FlightResist AI 2.0 — durable session state (in-memory store is live truth,
+// this table is the write-through snapshot for restart resilience + demo ledger)
+model TripSession {
+  id              String   @id // e.g. "TRIP-SIN-NRT-2026"
+  state           String
+  providerMode    String
+  riskScore       Int      @default(0)
+  disruption      String? // JSON: DisruptionEvent
+  analysis        String? // JSON: RecoveryAnalysis (options, funnel, impact graph, explanation)
+  execution       String? // JSON: ExecutionResult
+  selectedOption  String?
+  disruptionSeq   Int      @default(0) // how many disruptions triggered this session
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Append-only agent reasoning trace (replayed by SSE on reconnect)
+model AgentEvent {
+  id          Int      @id @default(autoincrement())
+  sessionId   String
+  seq         Int
+  phase       String
+  step        String
+  title       String
+  details     String
+  level       String   // info | success | warn | critical | agent
+  agent       String?  // Phase 4: TraceActor — SUPERVISOR | IMPACT_REASONER | TRADE_OFF_EXPLAINER | TOOL_ORCHESTRATOR | DETERMINISTIC_ENGINE | OPTIMIZER
+  durationMs  Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([sessionId, seq])
+}
+
+// Recovery execution ledger (persisted history of provider executions)
+model ExecutionOrder {
+  id              String   @id @default(cuid())
+  sessionId       String
+  providerMode    String
+  proposalId      String
+  status          String // SIMULATED | SUCCEEDED | FAILED
+  reference       String? // SIM-REV-xxxxx (demo) or provider order id (atlas)
+  pnr             String?
+  fareKey         String?
+  executionTimeMs Int      @default(0)
+  steps           String // JSON: ExecutionStep[]
+  createdAt       DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+}

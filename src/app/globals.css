@@ -1,0 +1,389 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  color-scheme: light;
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+/* ── Light-mode palette adaptation ────────────────────────────────────
+   The console is designed dark-first: zinc-100 headings, amber-400
+   labels, zinc-900 panels — all tuned for a near-black canvas. In light
+   mode those exact shades would wash out or vanish entirely, so the
+   neutral ramp is mirrored and the accent shades deepened. Tailwind v4
+   utilities resolve through var(--color-*), so re-mapping the tokens
+   here re-themes every utility at once; `.dark` keeps the stock palette
+   from the default theme, leaving dark mode visually untouched. */
+:root:not(.dark) {
+  /* neutral ramp — mirrored for light surfaces */
+  --color-zinc-50: oklch(21% 0.006 285.885);
+  --color-zinc-100: oklch(27.4% 0.006 286.033);
+  --color-zinc-200: oklch(37% 0.013 285.805);
+  --color-zinc-300: oklch(37% 0.013 285.805);
+  --color-zinc-400: oklch(44.2% 0.017 285.786);
+  --color-zinc-500: oklch(44.2% 0.017 285.786);
+  --color-zinc-600: oklch(55.2% 0.016 285.938);
+  --color-zinc-700: oklch(70.5% 0.015 286.067);
+  --color-zinc-800: oklch(87.1% 0.006 286.286);
+  --color-zinc-900: oklch(92% 0.004 286.32);
+  --color-zinc-950: oklch(92% 0.004 286.32);
+  /* amber — the brand accent, deepened for contrast on white */
+  --color-amber-100: oklch(55.5% 0.163 48.998);
+  --color-amber-200: oklch(55.5% 0.163 48.998);
+  --color-amber-300: oklch(66.6% 0.179 58.318);
+  --color-amber-400: oklch(66.6% 0.179 58.318);
+  --color-amber-500: oklch(55.5% 0.163 48.998);
+  /* remaining accent shades used for text/badges — stepped down for legibility */
+  --color-orange-200: oklch(55.3% 0.195 38.402);
+  --color-orange-300: oklch(55.3% 0.195 38.402);
+  --color-orange-400: oklch(55.3% 0.195 38.402);
+  --color-red-300: oklch(57.7% 0.245 27.325);
+  --color-red-400: oklch(57.7% 0.245 27.325);
+  --color-red-500: oklch(57.7% 0.245 27.325);
+  --color-emerald-200: oklch(50.8% 0.118 165.612);
+  --color-emerald-300: oklch(59.6% 0.145 163.225);
+  --color-emerald-400: oklch(59.6% 0.145 163.225);
+  --color-emerald-500: oklch(50.8% 0.118 165.612);
+  --color-sky-300: oklch(58.8% 0.158 241.966);
+  --color-sky-400: oklch(58.8% 0.158 241.966);
+  --color-sky-500: oklch(50% 0.134 242.749);
+  --color-fuchsia-300: oklch(59.1% 0.293 322.896);
+  --color-fuchsia-400: oklch(59.1% 0.293 322.896);
+  --color-yellow-300: oklch(55.4% 0.135 66.442);
+  --color-yellow-400: oklch(55.4% 0.135 66.442);
+  --color-lime-300: oklch(53.2% 0.157 131.589);
+  --color-teal-300: oklch(51.1% 0.096 186.391);
+  --color-rose-300: oklch(51.4% 0.222 16.935);
+  --color-violet-300: oklch(49.1% 0.27 292.581);
+  --color-cyan-300: oklch(52% 0.105 223.128);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* FlightResist ops console — custom scrollbar for the agent trace terminal */
+.fr-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.fr-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.fr-scroll::-webkit-scrollbar-thumb {
+  background: oklch(0.62 0 0 / 0.6);
+  border-radius: 8px;
+}
+.fr-scroll::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.52 0 0 / 0.75);
+}
+.dark .fr-scroll::-webkit-scrollbar-thumb {
+  background: oklch(0.32 0 0 / 0.8);
+}
+.dark .fr-scroll::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.42 0 0 / 0.9);
+}
+.fr-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.62 0 0 / 0.6) transparent;
+}
+.dark .fr-scroll {
+  scrollbar-color: oklch(0.32 0 0 / 0.8) transparent;
+}
+
+/* ── FlightResist visual polish layer ─────────────────────────────── */
+
+/* amber selection tint across the console */
+::selection {
+  background: rgb(251 191 36 / 0.35);
+  color: rgb(24 24 27);
+}
+.dark ::selection {
+  background: rgb(251 191 36 / 0.28);
+  color: rgb(254 249 231);
+}
+
+/* kill grey mobile tap flashes on controls */
+button,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* hard on/off terminal cursor blink (steps, not a fade) */
+@keyframes fr-blink {
+  0%,
+  49.9% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+.fr-cursor {
+  animation: fr-blink 1.06s steps(1, end) infinite;
+}
+
+/* subtle shine sweep for hero badges / primary buttons (transform-only) */
+@keyframes fr-sweep {
+  0%,
+  55% {
+    transform: translateX(-160%) skewX(-18deg);
+  }
+  85%,
+  100% {
+    transform: translateX(420%) skewX(-18deg);
+  }
+}
+.fr-sweep {
+  overflow: hidden;
+}
+.fr-sweep::after {
+  content: "";
+  position: absolute;
+  top: -20%;
+  bottom: -20%;
+  left: 0;
+  width: 22%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+  transform: translateX(-160%) skewX(-18deg);
+  animation: fr-sweep 3.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  pointer-events: none;
+}
+.fr-sweep:disabled::after {
+  animation: none;
+}
+
+/* amber halo for the SIM-REV reference */
+.fr-glow-amber {
+  text-shadow:
+    0 0 22px rgb(251 191 36 / 0.45),
+    0 0 64px rgb(251 191 36 / 0.18);
+}
+
+/* execution modal scrim: deeper + slight blur on larger screens only */
+[data-slot="dialog-overlay"],
+[data-slot="alert-dialog-overlay"] {
+  background: rgb(0 0 0 / 0.45);
+}
+.dark [data-slot="dialog-overlay"],
+.dark [data-slot="alert-dialog-overlay"] {
+  background: rgb(0 0 0 / 0.72);
+}
+@media (min-width: 640px) {
+  [data-slot="dialog-overlay"],
+  [data-slot="alert-dialog-overlay"] {
+    backdrop-filter: blur(3px);
+  }
+}
+
+/* ── Print run-summary stylesheet ─────────────────────────────────── */
+/* The interactive console is hidden via Tailwind `print:hidden` on its
+   wrappers; the PrintSummary uses `hidden print:block`. This block just
+   normalizes the page for print. */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Belt-and-braces: hide overlays/chrome that could bleed into print */
+  [data-slot="dialog-overlay"],
+  [role="dialog"],
+  nextjs-portal {
+    display: none !important;
+  }
+}
+
+/* fuchsia "thinking" aura — animated gradient border while the LLM reasons */
+@keyframes fr-think {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+.fr-thinking {
+  position: relative;
+}
+.fr-thinking::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(90deg, rgb(217 70 239 / 0) 0%, rgb(217 70 239 / 0.6) 25%, rgb(251 191 36 / 0.35) 50%, rgb(217 70 239 / 0.6) 75%, rgb(217 70 239 / 0) 100%);
+  background-size: 200% 100%;
+  animation: fr-think 2.4s linear infinite;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* shimmering skeleton bars — upgrade over plain animate-pulse */
+@keyframes fr-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.fr-skeleton {
+  background: linear-gradient(90deg, rgb(228 228 231) 25%, rgb(244 244 245 / 0.9) 50%, rgb(228 228 231) 75%);
+  background-size: 200% 100%;
+  animation: fr-shimmer 1.6s linear infinite;
+}
+.dark .fr-skeleton {
+  background: linear-gradient(90deg, rgb(39 39 42) 25%, rgb(63 63 70 / 0.9) 50%, rgb(39 39 42) 75%);
+}
+
+/* respect reduced-motion preferences for the decorative loops */
+@media (prefers-reduced-motion: reduce) {
+  .fr-cursor,
+  .fr-sweep::after,
+  .fr-thinking::before,
+  .fr-skeleton,
+  .fr-recovered-pulse {
+    animation: none;
+  }
+}
+
+/* recovered celebration — soft emerald glow pulse */
+@keyframes fr-recovered-glow {
+  0%, 100% {
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(16, 185, 129, 0.3);
+  }
+}
+.fr-recovered-pulse {
+  animation: fr-recovered-glow 2.8s ease-in-out infinite;
+}
+

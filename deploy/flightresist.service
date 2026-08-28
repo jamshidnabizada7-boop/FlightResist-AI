@@ -1,0 +1,53 @@
+[Unit]
+Description=FlightResist AI — agentic travel disruption recovery
+Documentation=https://github.com/jamshidnabizada7-boop/FlightResist-AI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=flightresist
+Group=flightresist
+WorkingDirectory=/opt/flightresist
+
+# Bind to loopback only. Caddy is the sole public entry point.
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+
+# Demo provider: deterministic, no live bookings, safe to leave running in
+# public. Switch to `atlas` only for a supervised Atlas Sandbox run.
+Environment=ATLAS_MODE=demo
+
+# Absolute path. A relative `file:` URL would resolve against the standalone
+# server's own directory (it calls process.chdir) and open a stale copy.
+Environment=DATABASE_URL=file:/opt/flightresist/db/custom.db
+
+# Secrets live outside the repo. Optional: the app runs without this file and
+# falls back to deterministic explanations if no LLM key is present.
+#   /etc/flightresist.env   chmod 600, owned by root
+#   LLM_PROVIDER=qwen
+#   DASHSCOPE_API_KEY=...
+EnvironmentFile=-/etc/flightresist.env
+
+ExecStart=/usr/bin/node /opt/flightresist/.next/standalone/server.js
+
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=flightresist
+
+# Hardening. SQLite needs to create -journal/-wal siblings, so the whole db
+# directory is writable rather than just the file.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadWritePaths=/opt/flightresist/db
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,54 @@
+{
+  "$comment": "FlightResist AI 2.0 — MCP tool surface for Qoder workspace import. The runtime is REAL: src/app/api/mcp/route.ts serves MCP-over-HTTP (JSON-RPC 2.0: initialize, tools/list, tools/call) and each tool delegates to the same deterministic engine the REST routes use. Point `url` at the running server (default http://localhost:3000/api/mcp). No capability is claimed that the app does not actually perform.",
+  "mcpServers": {
+    "flightresist": {
+      "type": "http",
+      "url": "http://localhost:3000/api/mcp",
+      "headers": {
+        "X-FlightResist-Client": "qoder-mcp"
+      },
+      "tools": [
+        {
+          "name": "get_current_trip",
+          "description": "Returns the active trip session: itinerary, state machine state, risk score, provider mode, ledger.",
+          "input_schema": { "type": "object", "properties": {}, "required": [] }
+        },
+        {
+          "name": "trigger_disruption",
+          "description": "Simulates an inbound disruption webhook for a flight on the active itinerary and starts the autonomous recovery analysis pipeline.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "flight_number": { "type": "string", "enum": ["SQ856", "CX520"] },
+              "event": { "type": "string", "enum": ["CANCELLATION", "DELAY"] },
+              "reason": { "type": "string" },
+              "delay_minutes": { "type": "number" }
+            },
+            "required": ["flight_number", "event"]
+          }
+        },
+        {
+          "name": "get_recovery_options",
+          "description": "Returns the deterministic analysis: 42-candidate funnel, pruned summary, 3 ranked options with multi-criteria scores, and the LLM explanation.",
+          "input_schema": { "type": "object", "properties": {}, "required": [] }
+        },
+        {
+          "name": "confirm_recovery",
+          "description": "The human approval gate: executes the approved proposal through the active provider (DemoProvider simulated, or AtlasSandboxProvider when the atlas-flight CLI is present).",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "proposal_id": { "type": "string", "enum": ["opt_a", "opt_b", "opt_c"] }
+            },
+            "required": ["proposal_id"]
+          }
+        },
+        {
+          "name": "reset_session",
+          "description": "Resets the demo session to NORMAL (execution ledger is preserved).",
+          "input_schema": { "type": "object", "properties": {}, "required": [] }
+        }
+      ]
+    }
+  }
+}
