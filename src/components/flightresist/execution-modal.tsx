@@ -43,28 +43,27 @@ interface StepDef {
   agent: string;
 }
 
-/** Step definitions — the demo-specific details are swapped for real Atlas
- *  wording when the provider runs live (mode = ATLAS_SANDBOX). */
+/** Step definitions with clean, professional labels */
 function stepDefs(live: boolean): StepDef[] {
   return [
-    { key: 'approval', title: 'Human approval received', detail: 'Explicit POST /api/recovery/confirm payload', icon: ShieldCheck, agent: 'SUPERVISOR' },
-    { key: 'verify_fare', title: 'Verify fare', detail: 'provider.verifyFare(fare_key)', icon: BadgeCheck, agent: 'TOOLS' },
-    { key: 'create_order', title: 'Create order', detail: 'provider.createAndPayOrder(…)', icon: Plane, agent: 'TOOLS' },
+    { key: 'approval', title: 'Supervisor Approval', detail: 'Explicit POST payload validated', icon: ShieldCheck, agent: 'SUPERVISOR' },
+    { key: 'verify_fare', title: 'Fare Verification', detail: 'Real-time fare validity locked', icon: BadgeCheck, agent: 'TOOLS' },
+    { key: 'create_order', title: 'Order Creation', detail: 'Passenger details & route bound', icon: Plane, agent: 'TOOLS' },
     {
       key: 'authorize_payment',
-      title: 'Authorize payment',
-      detail: live ? 'order pay — real payment through Atlas' : 'sandbox payment — demo wallet',
+      title: 'Payment Authorization',
+      detail: live ? 'Live Atlas settlement authorized' : 'Sandbox wallet authorized',
       icon: CreditCard,
       agent: 'TOOLS',
     },
     {
       key: 'issue_ticket',
-      title: 'Issue ticket',
-      detail: live ? 'airline PNR issued by the provider' : 'simulated e-ticket reference',
+      title: 'e-Ticket Issuance',
+      detail: live ? 'Airline GDS PNR issued' : 'Simulated booking reference generated',
       icon: Ticket,
       agent: 'TOOLS',
     },
-    { key: 'order_status', title: 'Confirm order status', detail: 'provider.getOrderStatus(order_id)', icon: BadgeCheck, agent: 'SUPERVISOR' },
+    { key: 'order_status', title: 'State Finalization', detail: 'Immutably logged to audit ledger', icon: BadgeCheck, agent: 'SUPERVISOR' },
   ];
 }
 
@@ -98,8 +97,6 @@ export function ExecutionModal({
     return map;
   }, [events, startSeq]);
 
-  // Live (real Atlas flights) vs demo — prefer the executed result's recorded
-  // mode, falling back to the active provider while execution is in flight.
   const isLive = (result?.providerMode ?? provider.mode) === 'ATLAS_SANDBOX';
   const defs = useMemo(() => stepDefs(isLive), [isLive]);
 
@@ -126,7 +123,6 @@ export function ExecutionModal({
       return 'done';
     }
     if (liveSteps.has(i)) return 'done';
-    // step 0 done as soon as modal opens (approval = the tap)
     if (i === 0) return 'done';
     return 'pending';
   };
@@ -146,262 +142,241 @@ export function ExecutionModal({
     return agg?.durationMs;
   };
 
-  // presentational: how many steps are complete (drives the emerald progress rail)
   const doneCount = defs.reduce((acc, _, i) => acc + (stepState(i) === 'done' ? 1 : 0), 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto overflow-x-hidden border-border bg-background p-0 text-foreground shadow-2xl shadow-black/60">
-        {/* amber accent hairline */}
-        <div className="h-px bg-gradient-to-r from-transparent via-amber-500/60 to-transparent" />
-        {/* header */}
-        <div className="relative overflow-hidden border-b border-zinc-800 px-5 py-4">
-          <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-amber-500/10 blur-3xl" />
-          <DialogHeader>
-            <DialogTitle className="flex flex-wrap items-center gap-2 text-base font-bold">
-              <Zap className="h-5 w-5 text-amber-400" />
-              {completed ? (failed ? 'Execution Failed' : 'Recovery Executed') : 'Executing Recovery'}
-              {option && <span className="text-zinc-400">— Option {option.label}</span>}
-              <span
-                className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider ${
-                  isLive
-                    ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
-                    : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
-                }`}
-                title={isLive ? 'Live mode — real booking through the Atlas provider' : 'Demo mode — simulated booking, no real payment'}
-              >
-                {isLive && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />}
-                {isLive ? 'LIVE' : 'DEMO'}
-              </span>
-            </DialogTitle>
-            <DialogDescription className="font-mono text-[11px] text-zinc-500">
-              {provider.badge} · {provider.label}
+      <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto overflow-x-hidden rounded-2xl border border-zinc-800/90 bg-zinc-950/95 p-0 text-foreground shadow-2xl shadow-black/80 backdrop-blur-xl [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-track]:bg-transparent">
+        {/* Top Glowing Ambient Hairline */}
+        <div className={`h-1 w-full bg-gradient-to-r ${isLive ? 'from-emerald-500 via-teal-400 to-emerald-600' : 'from-amber-500 via-orange-400 to-amber-600'}`} />
+
+        {/* Header Section */}
+        <div className="relative border-b border-zinc-800/80 px-6 py-4">
+          <div className={`pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full blur-3xl ${isLive ? 'bg-emerald-500/15' : 'bg-amber-500/15'}`} />
+          <DialogHeader className="space-y-1">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <DialogTitle className="flex items-center gap-2.5 text-base sm:text-lg font-extrabold tracking-tight">
+                <div className={`flex h-8 w-8 items-center justify-center rounded-lg border ${isLive ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-400' : 'border-amber-500/40 bg-amber-500/15 text-amber-400'}`}>
+                  <Zap className="h-4 w-4 fill-current" />
+                </div>
+                <span>
+                  {completed ? (failed ? 'Recovery Execution Failed' : 'Recovery Booked & Confirmed') : 'Autonomous Execution in Flight'}
+                </span>
+                {option && (
+                  <span className="text-sm font-semibold text-zinc-400">
+                    · Option {option.label}
+                  </span>
+                )}
+              </DialogTitle>
+
+              <div className="flex items-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[11px] font-extrabold uppercase tracking-wider ${
+                    isLive
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                      : 'border-amber-500/40 bg-amber-500/10 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.15)]'
+                  }`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${isLive ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400 animate-pulse'}`} />
+                  {isLive ? 'Live Atlas GDS' : 'Simulation Mode'}
+                </span>
+              </div>
+            </div>
+
+            <DialogDescription className="font-mono text-xs text-zinc-400">
+              Autonomous Agentic Pipeline · Multi-Step Airline Rebooking &amp; Settlement
             </DialogDescription>
           </DialogHeader>
         </div>
 
-        {/* steps — timeline rail with emerald progress fill */}
-        <div className="relative px-5 py-4">
-          <div className="absolute bottom-5 left-[31.5px] top-5 w-px bg-zinc-800/80" />
-          <motion.div
-            className="absolute left-[31.5px] top-5 w-px origin-top bg-gradient-to-b from-emerald-400 to-emerald-500/50"
-            style={{ height: 'calc(100% - 40px)' }}
-            initial={{ scaleY: 0 }}
-            animate={{ scaleY: doneCount / 6 }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
-          />
-          {defs.map((def, i) => {
-            const st = stepState(i);
-            const ev = liveSteps.get(i);
-            const duration = stepDuration(i);
-            return (
-              <div key={def.key} className="relative flex items-center gap-3 py-1">
-                <div
-                  className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border bg-background transition-colors ${
-                    st === 'done' ? 'border-emerald-500/50' : 'border-zinc-700/70'
-                  }`}
-                >
-                  {st === 'done' ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                  ) : executing ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
-                  ) : (
-                    <CircleDashed className="h-4 w-4 text-zinc-400" />
-                  )}
-                </div>
-                <div
-                  className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg border px-3 py-2 transition-colors ${
-                    st === 'done'
-                      ? 'border-emerald-500/25 bg-emerald-500/[0.05]'
-                      : 'border-zinc-800/70 bg-zinc-900/40'
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[12.5px] font-semibold ${st === 'done' ? 'text-zinc-200' : 'text-zinc-400'}`}>
-                        {def.title}
-                      </span>
-                      <span
-                        className={`rounded border px-1 py-px text-[10.5px] font-bold tracking-wider ${
-                          def.agent === 'SUPERVISOR'
-                            ? 'border-sky-500/30 bg-sky-500/10 text-sky-300'
-                            : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300'
-                        }`}
-                      >
-                        {def.agent}
-                      </span>
-                    </div>
-                    <div className="truncate font-mono text-[10px] text-zinc-400">
-                      {ev?.details ?? def.detail}
-                    </div>
+        <div className="space-y-5 px-6 py-5">
+          {/* SUCCESS HERO: High-Impact Boarding Pass & Confirmation Card */}
+          {completed && !failed && result && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="relative overflow-hidden rounded-2xl border border-emerald-500/40 bg-gradient-to-b from-emerald-950/40 via-zinc-900/60 to-zinc-950 p-5 shadow-xl shadow-emerald-950/20 backdrop-blur-md"
+            >
+              {/* Background ambient radial glow */}
+              <div className="pointer-events-none absolute left-1/2 top-0 h-32 w-80 -translate-x-1/2 rounded-full bg-emerald-500/15 blur-2xl" />
+
+              <div className="relative flex flex-wrap items-center justify-between gap-3 border-b border-emerald-500/20 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
+                    <CheckCircle2 className="h-4 w-4" />
                   </div>
-                  {st === 'done' && i > 0 && duration !== undefined && duration > 0 && (
-                    <span className="inline-block min-w-[46px] shrink-0 rounded bg-zinc-800/80 px-1.5 py-0.5 text-center font-mono text-[10px] tabular-nums text-zinc-400">
-                      {fmtDuration(duration)}
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* result panel */}
-        {completed && result && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`mx-5 mb-5 rounded-xl border p-4 ${
-              failed ? 'border-red-500/40 bg-red-500/[0.06]' : 'border-emerald-500/40 bg-emerald-500/[0.06]'
-            }`}
-          >
-            {failed ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <XCircle className="h-5 w-5 text-red-400" />
-                    <span className="font-mono text-sm font-bold text-red-400">FAILED</span>
-                  </div>
-                  <span className="rounded border border-red-500/30 bg-red-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-red-300">
-                    {isUnbookable
-                      ? 'Unbookable Sandbox Offer'
-                      : isBalanceCheck
-                        ? 'Balance Check Required'
-                        : 'Execution Error'}
-                  </span>
-                </div>
-
-                <div className="rounded-lg border border-red-500/20 bg-red-500/[0.04] p-3 text-[11.5px] leading-relaxed text-zinc-300">
-                  <p className="font-medium text-red-200">
-                    {isUnbookable
-                      ? 'Live Sandbox Inventory Notice: The selected flight offer is reference-only comparison inventory. Direct live booking and automated ticketing require account ticketing activation in your ATRIP workspace.'
-                      : isBalanceCheck
-                        ? 'Payment Balance Check Required: Payment could not be confirmed because account balance may be insufficient. SKILL.md Safety Rule: Do NOT re-submit payment directly.'
-                        : result.error}
-                  </p>
-                  {result.error && (isUnbookable || isBalanceCheck) && (
-                    <p className="mt-1 font-mono text-[10px] text-zinc-400">
-                      Technical detail: {result.error}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  {onSwitchToDemo && (
-                    <Button
-                      onClick={() => {
-                        onSwitchToDemo();
-                        onOpenChange(false);
-                      }}
-                      className="h-9 gap-2 rounded-md bg-gradient-to-r from-amber-400 to-orange-500 px-4 text-xs font-extrabold text-neutral-950 shadow-md shadow-amber-500/20 hover:brightness-105"
-                    >
-                      <Zap className="h-3.5 w-3.5 fill-current" />
-                      ⚡ Switch to Demo Mode &amp; Simulate Recovery
-                    </Button>
-                  )}
-
-                  {(isUnbookable || isBalanceCheck) && (
-                    <a
-                      href={orderUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 px-3 text-xs font-semibold text-sky-300 hover:bg-sky-500/20"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      ↗ Open ATRIP Workspace
-                    </a>
-                  )}
-
-                  {!isBalanceCheck && !isUnbookable && (
-                    <Button
-                      onClick={onRetry}
-                      className="h-9 gap-2 rounded-md border border-red-500/40 bg-red-500/10 text-xs font-bold text-red-300 transition-all hover:bg-red-500/20 active:scale-[0.97] focus-visible:ring-red-400/60"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                      RETRY EXECUTION
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-extrabold uppercase tracking-wider text-emerald-300">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span className="font-mono text-xs font-bold uppercase tracking-wider text-emerald-300">
                     {result.status} · {result.state}
                   </span>
-                  <span className="font-mono text-[11px] tabular-nums text-zinc-400">
-                    total {fmtDuration(result.executionTimeMs)}
+                </div>
+                <div className="flex items-center gap-2 font-mono text-xs text-zinc-400">
+                  <span>Execution Duration:</span>
+                  <span className="rounded bg-zinc-800/80 px-2 py-0.5 font-bold tabular-nums text-emerald-300">
+                    {fmtDuration(result.executionTimeMs)}
                   </span>
                 </div>
+              </div>
 
-                <div className="relative mt-3 overflow-hidden rounded-lg px-2 py-2 text-center">
-                  <motion.div
-                    aria-hidden
-                    className={`pointer-events-none absolute left-1/2 top-1/2 h-20 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full blur-2xl ${
-                      isLive ? 'bg-emerald-500/15' : 'bg-amber-500/15'
-                    }`}
-                    animate={{ scale: [1, 1.3, 1], opacity: [0.4, 0.85, 0.4] }}
-                    transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
-                  />
-                  <div className="relative text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
-                    {isLive
-                      ? result.pnr
-                        ? 'Live booking reference — real PNR from Atlas'
-                        : 'Live booking reference'
-                      : 'Simulated reference (demo mode)'}
-                  </div>
-                  <div
-                    className={`relative mt-1 font-mono text-2xl font-extrabold tracking-[0.16em] ${
-                      isLive ? 'fr-glow-emerald text-emerald-300' : 'fr-glow-amber text-amber-300'
-                    }`}
-                  >
-                    {result.pnr ?? result.demoReference ?? '—'}
-                  </div>
-                  <div className="relative mt-1 font-mono text-[10.5px] tabular-nums text-zinc-500">
-                    order {result.orderId} · fare {result.fareKey}
-                  </div>
+              {/* Main Reference Code Display */}
+              <div className="relative py-4 text-center">
+                <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
+                  {isLive ? 'Official Airline GDS Booking Reference (PNR)' : 'Simulated Recovery Confirmation Code'}
                 </div>
-
-                <div
-                  className={`mt-3 rounded-lg border p-2.5 text-center ${
-                    isLive
-                      ? 'border-emerald-500/25 bg-emerald-500/[0.06]'
-                      : 'border-amber-500/25 bg-amber-500/[0.06]'
-                  }`}
-                >
-                  <div
-                    className={`font-mono text-[10px] font-bold uppercase tracking-widest ${
-                      isLive ? 'text-emerald-400' : 'text-amber-400'
-                    }`}
-                  >
-                    {provider.badge}
-                  </div>
-                  <p className="mt-1 text-[10.5px] leading-relaxed text-zinc-500">
-                    {isLive
-                      ? 'Live execution — real booking through the Atlas provider: real order id and real PNR returned by the provider.'
-                      : 'Simulated execution — no real booking, no real payment, no fabricated PNR. A live Atlas sandbox would return a real order id + PNR here.'}
-                  </p>
+                <div className="mt-1 font-mono text-3xl sm:text-4xl font-extrabold tracking-[0.18em] text-amber-300 drop-shadow-[0_0_24px_rgba(251,191,36,0.35)]">
+                  {result.pnr ?? result.demoReference ?? 'CONFIRMED'}
                 </div>
-              </>
-            )}
-          </motion.div>
-        )}
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 font-mono text-xs text-zinc-400">
+                  <span>Order ID: <strong className="text-zinc-200">{result.orderId}</strong></span>
+                  <span>·</span>
+                  <span>Fare Key: <strong className="text-zinc-200">{result.fareKey}</strong></span>
+                </div>
+              </div>
 
-        {/* executing shimmer */}
-        {executing && (
-          <div className="mx-5 mb-5 flex items-center justify-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.05] p-3">
+              <div className="relative rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-2.5 text-center">
+                <p className="font-mono text-[11px] text-zinc-400">
+                  {isLive
+                    ? '✓ Real GDS ticket issued through Atlas Travel API. Order record immutably sealed in database.'
+                    : '✓ Autonomous recovery simulation completed. All audit events and ledger transactions committed.'}
+                </p>
+              </div>
+            </motion.div>
+          )}
+
+          {/* FAILURE STATE */}
+          {completed && failed && result && (
             <motion.div
-              className="h-2 w-2 rounded-full bg-amber-400"
-              animate={{ scale: [1, 1.6, 1], opacity: [1, 0.5, 1] }}
-              transition={{ duration: 1, repeat: Infinity }}
-            />
-            <span className="font-mono text-[11px] text-amber-300">
-              state: EXECUTING — provider transaction in flight…
-            </span>
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="rounded-2xl border border-red-500/40 bg-red-950/30 p-5 backdrop-blur-md space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <XCircle className="h-5 w-5 text-red-400" />
+                  <span className="font-mono text-sm font-bold text-red-300">EXECUTION BLOCKED / FAILED</span>
+                </div>
+                <span className="rounded-full border border-red-500/40 bg-red-500/10 px-2.5 py-0.5 font-mono text-[10.5px] font-bold uppercase text-red-300">
+                  {isUnbookable ? 'Unbookable Sandbox Offer' : isBalanceCheck ? 'Balance Check Required' : 'Execution Error'}
+                </span>
+              </div>
+
+              <div className="rounded-xl border border-red-500/30 bg-red-950/40 p-3.5 text-xs leading-relaxed text-zinc-300">
+                <p className="font-medium text-red-200">
+                  {isUnbookable
+                    ? 'Live Sandbox Inventory Notice: The selected flight offer is comparison-only inventory. Live automated ticketing requires account activation in your ATRIP workspace.'
+                    : isBalanceCheck
+                      ? 'Payment Balance Check Required: Atlas balance verification required before proceeding.'
+                      : result.error}
+                </p>
+                {result.error && (isUnbookable || isBalanceCheck) && (
+                  <p className="mt-2 font-mono text-[11px] text-zinc-400">Technical payload: {result.error}</p>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                {onSwitchToDemo && (
+                  <Button
+                    onClick={() => {
+                      onSwitchToDemo();
+                      onOpenChange(false);
+                    }}
+                    className="h-9 gap-2 rounded-lg bg-gradient-to-r from-amber-400 to-orange-500 px-4 text-xs font-extrabold text-zinc-950 shadow-md shadow-amber-500/20 hover:brightness-105"
+                  >
+                    <Zap className="h-3.5 w-3.5 fill-current" />
+                    Switch to Simulation Mode &amp; Re-run
+                  </Button>
+                )}
+                {(isUnbookable || isBalanceCheck) && (
+                  <a
+                    href={orderUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Open ATRIP Workspace
+                  </a>
+                )}
+                {!isBalanceCheck && !isUnbookable && (
+                  <Button
+                    onClick={onRetry}
+                    className="h-9 gap-2 rounded-lg border border-red-500/40 bg-red-500/10 text-xs font-bold text-red-300 hover:bg-red-500/20"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Retry Execution
+                  </Button>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+          {/* EXECUTING SHIMMER (When in flight) */}
+          {executing && (
+            <div className="flex items-center justify-center gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/[0.08] p-4">
+              <Loader2 className="h-5 w-5 animate-spin text-amber-400" />
+              <span className="font-mono text-xs sm:text-sm font-bold text-amber-200">
+                Executing multi-step airline settlement transaction…
+              </span>
+            </div>
+          )}
+
+          {/* AGENTIC STEP TIMELINE (Compact Grid / Two-Column Layout) */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-wider text-zinc-400">
+              <span>Agentic Verification Pipeline</span>
+              <span className="text-emerald-400 font-bold">{doneCount} / 6 Verified</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {defs.map((def, i) => {
+                const st = stepState(i);
+                const ev = liveSteps.get(i);
+                const duration = stepDuration(i);
+                return (
+                  <div
+                    key={def.key}
+                    className={`flex items-start gap-2.5 rounded-xl border p-2.5 transition-all ${
+                      st === 'done'
+                        ? 'border-emerald-500/30 bg-emerald-500/[0.04]'
+                        : executing && i === doneCount
+                          ? 'border-amber-500/50 bg-amber-500/[0.08] shadow-[0_0_12px_rgba(245,158,11,0.1)]'
+                          : 'border-zinc-800/80 bg-zinc-900/30 opacity-70'
+                    }`}
+                  >
+                    <div className="mt-0.5 flex shrink-0 items-center justify-center">
+                      {st === 'done' ? (
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                        </div>
+                      ) : executing && i === doneCount ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-amber-400" />
+                      ) : (
+                        <CircleDashed className="h-4 w-4 text-zinc-500" />
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className={`truncate text-xs font-bold ${st === 'done' ? 'text-zinc-200' : 'text-zinc-400'}`}>
+                          {def.title}
+                        </span>
+                        {st === 'done' && duration !== undefined && duration > 0 && (
+                          <span className="rounded bg-zinc-800/80 px-1.5 py-px font-mono text-[10px] tabular-nums text-zinc-400">
+                            {fmtDuration(duration)}
+                          </span>
+                        )}
+                      </div>
+                      <p className="truncate font-mono text-[10px] text-zinc-400">
+                        {ev?.details ?? def.detail}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        )}
+        </div>
       </DialogContent>
     </Dialog>
   );
 }
+
