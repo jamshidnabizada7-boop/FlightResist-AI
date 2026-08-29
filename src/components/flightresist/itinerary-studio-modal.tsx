@@ -710,75 +710,75 @@ export function ItineraryStudioModal({
           </TabsContent>
 
           {/* TAB 3: PNR & JSON IMPORT/EXPORT */}
-          <TabsContent value="import" className="mt-5 space-y-5">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <TabsContent value="import" className="mt-4 space-y-4 pb-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* PNR Text Import */}
-              <div className="flex flex-col justify-between rounded-2xl border border-zinc-800/80 bg-zinc-900/40 p-5 backdrop-blur-sm space-y-3">
-                <div>
+              <div className="flex flex-col justify-between rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 backdrop-blur-sm space-y-3">
+                <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-amber-400">
-                      <FileCode className="h-4 w-4" /> Raw GDS PNR Import
+                    <div className="flex items-center gap-1.5 font-bold text-xs uppercase tracking-wider text-amber-400">
+                      <FileCode className="h-4 w-4" /> Raw GDS PNR
                     </div>
                     <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] text-amber-300">
                       Amadeus · Sabre
                     </span>
                   </div>
-                  <p className="mt-1 text-[11.5px] leading-relaxed text-zinc-400">
+                  <p className="text-[11px] leading-relaxed text-zinc-400">
                     Paste raw GDS terminal text to auto-parse passenger identities and multi-leg flights:
                   </p>
                   <Textarea
                     value={rawPnrText}
                     onChange={(e) => setRawPnrText(e.target.value)}
                     placeholder={'1.1CHEN/WEI MR\n1 SQ 856 Y 27AUG SINHKG HK1 0800 1205\n2 CX 520 Y 27AUG HKGNRT HK1 1430 1945'}
-                    className="mt-3 font-mono text-[11.5px] leading-relaxed bg-zinc-950/80 border-zinc-800/90 text-zinc-200 h-48 rounded-xl p-3 resize-none focus-visible:ring-amber-400/40 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-800"
+                    className="font-mono text-[11px] leading-relaxed bg-zinc-950/80 border-zinc-800/90 text-zinc-200 h-36 rounded-lg p-2.5 resize-none focus-visible:ring-amber-400/40 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-800"
                   />
                 </div>
                 <Button
                   disabled={loading || !rawPnrText.trim()}
                   onClick={handleImportPnr}
-                  className="w-full h-10 bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110 text-zinc-950 text-xs font-extrabold shadow-md shadow-amber-500/20"
+                  className="w-full h-9 bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110 text-zinc-950 text-xs font-extrabold rounded-lg shadow-md shadow-amber-500/20"
                 >
-                  {loading ? 'Parsing PNR...' : 'Parse & Activate PNR Itinerary'}
+                  {loading ? 'Parsing PNR...' : 'Parse & Activate PNR'}
                 </Button>
               </div>
 
               {/* JSON Import/Export */}
-              <div className="flex flex-col justify-between rounded-2xl border border-zinc-800/80 bg-zinc-900/40 p-5 backdrop-blur-sm space-y-3">
-                <div>
+              <div className="flex flex-col justify-between rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 backdrop-blur-sm space-y-3">
+                <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-sky-400">
-                      <Layers className="h-4 w-4" /> Full JSON Schema Payload
+                    <div className="flex items-center gap-1.5 font-bold text-xs uppercase tracking-wider text-sky-400">
+                      <Layers className="h-4 w-4" /> Full JSON Schema
                     </div>
                     <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 font-mono text-[10px] text-sky-300">
                       Dynamic Itinerary
                     </span>
                   </div>
-                  <p className="mt-1 text-[11.5px] leading-relaxed text-zinc-400">
+                  <p className="text-[11px] leading-relaxed text-zinc-400">
                     Export active trip configuration or import custom JSON schema payload:
                   </p>
                   <Textarea
                     value={rawJsonText}
                     onChange={(e) => setRawJsonText(e.target.value)}
-                    className="mt-3 font-mono text-[11px] leading-relaxed bg-zinc-950/80 border-zinc-800/90 text-zinc-300 h-48 rounded-xl p-3 resize-none focus-visible:ring-sky-400/40 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-800"
+                    className="font-mono text-[10.5px] leading-relaxed bg-zinc-950/80 border-zinc-800/90 text-zinc-300 h-36 rounded-lg p-2.5 resize-none focus-visible:ring-sky-400/40 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-800"
                   />
                 </div>
-                <div className="flex items-center gap-2.5 pt-1">
+                <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     onClick={() => {
                       navigator.clipboard.writeText(rawJsonText);
                       toast({ title: 'JSON Copied', description: 'Itinerary JSON copied to clipboard.' });
                     }}
-                    className="flex-1 h-10 text-xs font-bold border-zinc-700 bg-zinc-900/80 hover:bg-zinc-800 hover:text-zinc-100 text-zinc-300 rounded-xl"
+                    className="flex-1 h-9 text-xs font-bold border-zinc-700 bg-zinc-900/80 hover:bg-zinc-800 hover:text-zinc-100 text-zinc-300 rounded-lg px-2"
                   >
-                    <Copy className="h-3.5 w-3.5 mr-1.5" /> Copy JSON
+                    <Copy className="h-3.5 w-3.5 mr-1" /> Copy JSON
                   </Button>
                   <Button
                     disabled={loading || !rawJsonText.trim()}
                     onClick={handleImportJson}
-                    className="flex-1 h-10 bg-gradient-to-r from-sky-500 to-blue-600 hover:brightness-110 text-white text-xs font-extrabold rounded-xl shadow-md shadow-sky-500/20"
+                    className="flex-1 h-9 bg-gradient-to-r from-sky-500 to-blue-600 hover:brightness-110 text-white text-xs font-extrabold rounded-lg shadow-md shadow-sky-500/20 px-2"
                   >
-                    {loading ? 'Importing...' : 'Import & Activate JSON'}
+                    {loading ? 'Importing...' : 'Import JSON'}
                   </Button>
                 </div>
               </div>
