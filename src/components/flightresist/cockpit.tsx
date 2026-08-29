@@ -63,6 +63,7 @@ export function FlightResistCockpit() {
   // verify-email banner (local dismissal only — reappears next visit).
   const [atlasAvailable, setAtlasAvailable] = useState<boolean | null>(null);
   const [verifyBannerDismissed, setVerifyBannerDismissed] = useState(false);
+  const [warningDismissed, setWarningDismissed] = useState(false);
 
   // Probe Atlas availability once signed in — powers the dashboard strip chip.
   useEffect(() => {
@@ -329,6 +330,30 @@ export function FlightResistCockpit() {
     }
   }, [resetSession, triggerDisruption, toast, refresh]);
 
+  const handleSwitchToDemo = useCallback(async () => {
+    try {
+      await fetch('/api/user/mode', {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'DEMO' }),
+      });
+      setWarningDismissed(true);
+      toast({
+        title: 'Switched to Simulation Mode',
+        description: 'Switched to deterministic simulation mode.',
+      });
+      refresh();
+    } catch (err) {
+      console.error('Failed to switch to demo mode', err);
+      toast({
+        title: 'Mode switch failed',
+        description: 'Unable to switch to Simulation Mode.',
+        variant: 'destructive',
+      });
+    }
+  }, [toast, refresh]);
+
   const handleSelectPreset = useCallback(async (presetId: string) => {
     const res = await fetch('/api/trip/preset', {
       method: 'POST',
@@ -545,9 +570,27 @@ export function FlightResistCockpit() {
       )}
 
       {/* Connection warning banner */}
-      {connectionWarning && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-red-900/90 border-b border-red-500/50 px-4 py-2 text-center text-sm text-red-100 font-medium backdrop-blur-sm">
-          {connectionWarning}
+      {connectionWarning && !warningDismissed && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-amber-950/95 border-b border-amber-500/50 px-4 py-2 text-center text-xs text-amber-100 font-medium backdrop-blur-md flex flex-wrap items-center justify-center gap-3 shadow-lg shadow-black/60">
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+            <span className="max-w-3xl truncate">{connectionWarning}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => void handleSwitchToDemo()}
+              className="rounded bg-amber-400 hover:bg-amber-300 text-zinc-950 px-2.5 py-0.5 text-xs font-bold transition-all shadow-sm flex items-center gap-1"
+            >
+              <Zap className="h-3 w-3 fill-current" /> Switch to Simulation Mode
+            </button>
+            <button
+              onClick={() => setWarningDismissed(true)}
+              className="text-amber-300/80 hover:text-white p-0.5 rounded hover:bg-amber-900/50"
+              aria-label="Dismiss warning"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
 
