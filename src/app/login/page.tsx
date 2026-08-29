@@ -14,8 +14,8 @@ import { OAuthErrorAlert } from "@/components/flightresist/oauth-error-alert";
 export default function LoginPage() {
   const router = useRouter();
   const { status: authStatus } = useSession();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("demo@flightresist.ai");
+  const [password, setPassword] = useState("demo123456");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -25,6 +25,30 @@ export default function LoginPage() {
       router.push("/");
     }
   }, [authStatus, router]);
+
+  async function handleDemoSignIn() {
+    setEmail("demo@flightresist.ai");
+    setPassword("demo123456");
+    setError("");
+    setLoading(true);
+    try {
+      const res = await signIn("credentials", {
+        redirect: false,
+        email: "demo@flightresist.ai",
+        password: "demo123456",
+      });
+
+      if (res?.error) {
+        setError("Invalid credentials. Please try again.");
+      } else {
+        router.push("/");
+      }
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -94,6 +118,17 @@ export default function LoginPage() {
           <CardDescription className="text-zinc-400 text-sm">
             Autonomous Travel Recovery Intelligence
           </CardDescription>
+
+          {/* Pre-filled Demo Account Badge */}
+          <div className="mt-1 w-full rounded-xl border border-amber-500/30 bg-amber-500/[0.08] p-3 text-center">
+            <div className="flex items-center justify-center gap-1.5 font-mono text-xs font-bold text-amber-300">
+              <span>⚡</span>
+              <span>Demo Account Pre-filled for Evaluators</span>
+            </div>
+            <p className="mt-1 font-mono text-[11px] text-zinc-400">
+              demo@flightresist.ai · demo123456
+            </p>
+          </div>
         </CardHeader>
 
         <form onSubmit={handleSubmit}>
@@ -109,9 +144,21 @@ export default function LoginPage() {
             )}
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="email" className="text-zinc-300 text-xs uppercase tracking-wider">
-                Email
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="email" className="text-zinc-300 text-xs uppercase tracking-wider">
+                  Email
+                </Label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail("demo@flightresist.ai");
+                    setPassword("demo123456");
+                  }}
+                  className="font-mono text-[10.5px] text-amber-400 hover:text-amber-300 transition-colors"
+                >
+                  Restore Demo
+                </button>
+              </div>
               <Input
                 id="email"
                 type="email"
@@ -120,7 +167,7 @@ export default function LoginPage() {
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="h-11 border-zinc-700 bg-zinc-800/60 text-white placeholder:text-zinc-500 focus-visible:border-amber-500 focus-visible:ring-amber-500/30"
+                className="h-11 border-zinc-700 bg-zinc-800/60 text-white placeholder:text-zinc-500 focus-visible:border-amber-500 focus-visible:ring-amber-500/30 font-mono text-sm"
               />
             </div>
 
@@ -136,7 +183,7 @@ export default function LoginPage() {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="h-11 border-zinc-700 bg-zinc-800/60 text-white placeholder:text-zinc-500 focus-visible:border-amber-500 focus-visible:ring-amber-500/30"
+                className="h-11 border-zinc-700 bg-zinc-800/60 text-white placeholder:text-zinc-500 focus-visible:border-amber-500 focus-visible:ring-amber-500/30 font-mono text-sm"
               />
             </div>
           </CardContent>

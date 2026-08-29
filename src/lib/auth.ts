@@ -55,9 +55,24 @@ export const authOptions: NextAuthOptions = {
         if (!credentials?.email || !credentials?.password) return null;
         if (!dbAvailable()) return null;
 
-        const user = await db.user.findUnique({
+        let user = await db.user.findUnique({
           where: { email: credentials.email.toLowerCase() },
         });
+
+        // Auto-provision demo account on any fresh DB
+        if (!user && credentials.email.toLowerCase() === 'demo@flightresist.ai' && credentials.password === 'demo123456') {
+          const hash = await bcrypt.hash('demo123456', 10);
+          user = await db.user.create({
+            data: {
+              email: 'demo@flightresist.ai',
+              name: 'Demo Evaluator',
+              passwordHash: hash,
+              emailVerified: new Date(),
+              preferredMode: 'DEMO',
+            },
+          });
+        }
+
         if (!user) return null;
         if (!user.passwordHash) return null; // OAuth-only user, no password set
 
