@@ -5,17 +5,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Install bun
-RUN npm install -g bun
-
 WORKDIR /app
 
 # Install dependencies
-COPY package.json bun.lock ./
+COPY package.json package-lock.json ./
 COPY prisma ./prisma/
-# Note: no --frozen-lockfile here; bun.lock was generated on Windows and
-# must be allowed to resolve platform-specific (Linux) binaries in Docker.
-RUN bun install
+RUN npm ci
 
 # Generate Prisma client
 RUN npx prisma generate
@@ -24,7 +19,7 @@ RUN npx prisma generate
 COPY . .
 ENV DEPLOY_TARGET=standalone
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN bun run build
+RUN npm run build
 
 # ─── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM node:24-slim AS runner
