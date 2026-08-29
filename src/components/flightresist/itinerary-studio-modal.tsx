@@ -399,7 +399,7 @@ export function ItineraryStudioModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto border-zinc-800 bg-zinc-950 text-zinc-100 p-6 sm:p-8">
+      <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto overflow-x-hidden rounded-2xl border border-zinc-800/90 bg-zinc-950/95 text-zinc-100 p-6 sm:p-8 shadow-2xl shadow-black/80 backdrop-blur-xl [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-800 [&::-webkit-scrollbar-track]:bg-transparent">
         <DialogHeader className="border-b border-zinc-800/80 pb-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
@@ -711,60 +711,74 @@ export function ItineraryStudioModal({
 
           {/* TAB 3: PNR & JSON IMPORT/EXPORT */}
           <TabsContent value="import" className="mt-5 space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* PNR Text Import */}
-              <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 space-y-3">
-                <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-amber-400">
-                  <FileCode className="h-4 w-4" /> Raw PNR String Import
+              <div className="flex flex-col justify-between rounded-2xl border border-zinc-800/80 bg-zinc-900/40 p-5 backdrop-blur-sm space-y-3">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-amber-400">
+                      <FileCode className="h-4 w-4" /> Raw GDS PNR Import
+                    </div>
+                    <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] text-amber-300">
+                      Amadeus · Sabre
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-zinc-400">
+                    Paste raw GDS terminal text to auto-parse passenger identities and multi-leg flights:
+                  </p>
+                  <Textarea
+                    value={rawPnrText}
+                    onChange={(e) => setRawPnrText(e.target.value)}
+                    placeholder={'1.1CHEN/WEI MR\n1 SQ 856 Y 27AUG SINHKG HK1 0800 1205\n2 CX 520 Y 27AUG HKGNRT HK1 1430 1945'}
+                    className="mt-3 font-mono text-[11.5px] leading-relaxed bg-zinc-950/80 border-zinc-800/90 text-zinc-200 h-48 rounded-xl p-3 resize-none focus-visible:ring-amber-400/40 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-800"
+                  />
                 </div>
-                <p className="text-[11px] text-zinc-400">
-                  Paste GDS / Amadeus / Sabre PNR text to parse passenger names and flight legs:
-                </p>
-                <Textarea
-                  value={rawPnrText}
-                  onChange={(e) => setRawPnrText(e.target.value)}
-                  placeholder={'1.1CHEN/WEI MR\n1 SQ 856 Y 27AUG SINHKG HK1 0800 1205\n2 CX 520 Y 27AUG HKGNRT HK1 1430 1945'}
-                  className="font-mono text-xs bg-zinc-950 border-zinc-800 h-32 resize-none"
-                />
                 <Button
                   disabled={loading || !rawPnrText.trim()}
                   onClick={handleImportPnr}
-                  className="w-full bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold"
+                  className="w-full h-10 bg-gradient-to-r from-amber-500 to-orange-500 hover:brightness-110 text-zinc-950 text-xs font-extrabold shadow-md shadow-amber-500/20"
                 >
-                  Parse & Activate PNR
+                  {loading ? 'Parsing PNR...' : 'Parse & Activate PNR Itinerary'}
                 </Button>
               </div>
 
               {/* JSON Import/Export */}
-              <div className="rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-4 space-y-3">
-                <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-blue-400">
-                  <Layers className="h-4 w-4" /> Full JSON Payload
+              <div className="flex flex-col justify-between rounded-2xl border border-zinc-800/80 bg-zinc-900/40 p-5 backdrop-blur-sm space-y-3">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 font-bold text-xs uppercase tracking-wider text-sky-400">
+                      <Layers className="h-4 w-4" /> Full JSON Schema Payload
+                    </div>
+                    <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 font-mono text-[10px] text-sky-300">
+                      Dynamic Itinerary
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-zinc-400">
+                    Export active trip configuration or import custom JSON schema payload:
+                  </p>
+                  <Textarea
+                    value={rawJsonText}
+                    onChange={(e) => setRawJsonText(e.target.value)}
+                    className="mt-3 font-mono text-[11px] leading-relaxed bg-zinc-950/80 border-zinc-800/90 text-zinc-300 h-48 rounded-xl p-3 resize-none focus-visible:ring-sky-400/40 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-zinc-800"
+                  />
                 </div>
-                <p className="text-[11px] text-zinc-400">
-                  Export active trip configuration or paste custom schema JSON:
-                </p>
-                <Textarea
-                  value={rawJsonText}
-                  onChange={(e) => setRawJsonText(e.target.value)}
-                  className="font-mono text-xs bg-zinc-950 border-zinc-800 h-32 resize-none"
-                />
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2.5 pt-1">
                   <Button
                     variant="outline"
                     onClick={() => {
                       navigator.clipboard.writeText(rawJsonText);
-                      toast({ title: 'JSON Copied to Clipboard' });
+                      toast({ title: 'JSON Copied', description: 'Itinerary JSON copied to clipboard.' });
                     }}
-                    className="flex-1 text-xs border-zinc-700 bg-zinc-900 hover:bg-zinc-800"
+                    className="flex-1 h-10 text-xs font-bold border-zinc-700 bg-zinc-900/80 hover:bg-zinc-800 hover:text-zinc-100 text-zinc-300 rounded-xl"
                   >
-                    <Copy className="h-3.5 w-3.5 mr-1" /> Copy JSON
+                    <Copy className="h-3.5 w-3.5 mr-1.5" /> Copy JSON
                   </Button>
                   <Button
                     disabled={loading || !rawJsonText.trim()}
                     onClick={handleImportJson}
-                    className="flex-1 bg-blue-500 hover:bg-blue-400 text-zinc-950 text-xs font-bold"
+                    className="flex-1 h-10 bg-gradient-to-r from-sky-500 to-blue-600 hover:brightness-110 text-white text-xs font-extrabold rounded-xl shadow-md shadow-sky-500/20"
                   >
-                    Import JSON
+                    {loading ? 'Importing...' : 'Import & Activate JSON'}
                   </Button>
                 </div>
               </div>
