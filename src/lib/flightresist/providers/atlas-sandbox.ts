@@ -120,7 +120,7 @@ export async function probeAtlas(): Promise<AtlasProbeResult> {
 
   let result: AtlasProbeResult;
   try {
-    const { stdout: vOut } = await exec(CLI, ['--version'], { timeout: 4000 });
+    const { stdout: vOut } = await exec(CLI, ['--version'], { timeout: 10000 });
     const v = vOut.trim().slice(0, 80);
 
     // Auth status gives us ticketing_available / ticketing_blocker.
@@ -128,7 +128,7 @@ export async function probeAtlas(): Promise<AtlasProbeResult> {
     let ticketingBlocker: string | undefined;
     let ticketingActivationUrl: string | undefined;
     try {
-      const { stdout: aOut } = await exec(CLI, ['auth', 'status', '--json'], { timeout: 4000 });
+      const { stdout: aOut } = await exec(CLI, ['auth', 'status', '--json'], { timeout: 10000 });
       const env = JSON.parse(aOut) as AtlasEnvelope;
       const d = (env.data ?? {}) as Record<string, unknown>;
       ticketingAvailable = typeof d.ticketing_available === 'boolean' ? d.ticketing_available : undefined;

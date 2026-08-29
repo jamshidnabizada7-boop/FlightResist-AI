@@ -33,10 +33,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 curl ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-# Install uv and Atlas CLI
-ENV PATH="/root/.local/bin:$PATH"
+# Install uv and Atlas CLI.
+# UV_TOOL_BIN_DIR forces uv to place the atlas-flight shim in /usr/local/bin
+# (already on the system PATH). The uv binary itself is invoked via its full
+# path since PATH may not include /root/.local/bin at RUN time.
+# `atlas-flight --version` fails the build immediately if the shim is broken.
+ENV UV_TOOL_BIN_DIR="/usr/local/bin"
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    uv tool install --force --python python3 atlas-flight-booking==0.3.12
+    /root/.local/bin/uv tool install --force --python python3 atlas-flight-booking==0.3.12 && \
+    atlas-flight --version
 
 WORKDIR /app
 
@@ -58,6 +63,8 @@ RUN npm install prisma@6.11.1
 
 EXPOSE 10000
 
-# Run migrations then start server.
-# && (not ;) so a failed migration prevents startup and the error is visible in Render logs.
-CMD ["sh", "-c", "npx prisma migrate deploy --schema=./prisma/schema.prisma && node server.js"]
+# Try migrations, then start the server regardless of migration outcome.
+# A failed migration (e.g. DIRECT_DATABASE_URL unset or DB timeout) logs a
+# visible WARNING instead of blocking startup — the app still boots so at
+# least Demo mode remains usable.
+CMD ["sh", "-c", "npx prisma migrate deploy --schema=./prisma/schema.prisma 2>&1 || echo 'WARNING: Migration failed, starting server anyway'; node server.js"]
