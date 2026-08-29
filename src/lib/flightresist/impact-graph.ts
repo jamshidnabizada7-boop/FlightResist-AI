@@ -61,8 +61,11 @@ function buildGraph(
   const meeting = itinerary.commitments.find((c) => c.kind === 'MEETING');
   const hotel = itinerary.commitments.find((c) => c.kind === 'HOTEL');
   const transfer = itinerary.commitments.find((c) => c.kind === 'TRANSFER');
-  const firstLeg = itinerary.legs[0];
+  const firstLeg = itinerary.legs[0] || { flightNumber: 'FL001', from: itinerary.origin, to: itinerary.destination, arrIso: '' };
   const secondLeg = itinerary.legs[1];
+  const lastLeg = itinerary.legs[itinerary.legs.length - 1] || firstLeg;
+  const destName = itinerary.destination;
+  const missionVenue = itinerary.mission?.venue || itinerary.mission?.location || destName;
 
   const nodes: ImpactNode[] = [
     {
@@ -84,7 +87,7 @@ function buildGraph(
       label: secondLeg ? `Connection ${secondLeg.flightNumber} (${secondLeg.from})` : 'Downstream connection',
       detail:
         probabilities.connection >= 0.99
-          ? `Hub closure guarantees the ${secondLeg?.flightNumber} misconnect — protected seat lost.`
+          ? `Hub closure guarantees the ${secondLeg?.flightNumber || 'connecting'} misconnect — protected seat lost.`
           : probabilities.connection >= 0.3
             ? `Tight hub connection — misconnect exposure elevated.`
             : `Connection buffer within safe range (≥ MCT with margin).`,
@@ -96,10 +99,10 @@ function buildGraph(
     {
       id: 'nd-arrival',
       kind: 'ARRIVAL',
-      label: 'NRT arrival punctuality',
+      label: `${destName} arrival punctuality`,
       detail:
         probabilities.arrival >= 0.99
-          ? `Planned arrival ${fmtTime(itinerary.legs[itinerary.legs.length - 1].arrIso)} is now unreachable.`
+          ? `Planned arrival ${fmtTime(lastLeg.arrIso)} is now unreachable.`
           : `Projected arrival slip within tolerance for downstream commitments.`,
       weight: WEIGHTS.arrival,
       probability: probabilities.arrival,
@@ -137,10 +140,10 @@ function buildGraph(
     {
       id: 'nd-meeting',
       kind: 'MEETING',
-      label: meeting?.label ?? 'Mission commitment',
+      label: meeting?.label ?? itinerary.mission?.title ?? 'Mission commitment',
       detail:
         probabilities.meeting >= 0.9
-          ? 'Arrival cannot clear NRT and reach Marunouchi before 08:30 — mission at stake.'
+          ? `Arrival cannot clear ${destName} and reach ${missionVenue} in time — mission at stake.`
           : probabilities.meeting >= 0.3
             ? 'Meeting reachable but buffer is thin.'
             : 'Meeting protected with healthy buffer.',
@@ -187,6 +190,7 @@ export function buildDisruptionImpactGraph(itinerary: Itinerary, disruption: Dis
   if (disruption.event === 'DELAY' && typeof disruption.delayMinutes === 'number' && disruption.delayMinutes > 0) {
     return buildDelayGraph(itinerary, disruption);
   }
+  const meeting = itinerary.commitments.find((c) => c.kind === 'MEETING') || { label: itinerary.mission?.title || 'Contract signing' };
   return buildGraph(
     itinerary,
     {
@@ -197,7 +201,7 @@ export function buildDisruptionImpactGraph(itinerary: Itinerary, disruption: Dis
       transfer: 1.0,
       meeting: 0.8,
     },
-    `Disruption detected on ${disruption.flightNumber} (${disruption.reason}). Downstream graph shows 5 of 6 commitments impacted or at risk; the 08:30 Marunouchi signing drives 58% of trip value.`,
+    `Disruption detected on ${disruption.flightNumber} (${disruption.reason}). Downstream graph shows 5 of 6 commitments impacted or at risk; the ${meeting.label} drives 58% of trip value.`,
   );
 }
 
@@ -213,22 +217,25 @@ function buildDelayGraph(itinerary: Itinerary, disruption: DisruptionEvent): Tri
   const plannedArrMs = new Date(lastLeg.arrIso).getTime();
   const newArrMs = plannedArrMs + delayMin * 60000;
   const meeting = itinerary.commitments.find((c) => c.kind === 'MEETING');
-  const meetingMs = meeting ? new Date(meeting.atIso).getTime() : plannedArrMs;
+  const meetingMs = meeting ? new Date(meeting.atIso).getTime() : plannedArrMs + 12 * 3600000;
   const transfer = itinerary.commitments.find((c) => c.kind === 'TRANSFER');
   const transferMs = transfer ? new Date(transfer.atIso).getTime() : plannedArrMs;
+
+  const destTz = extractTzOffset(lastLeg.arrIso);
 
   // Deterministic compression model (fraction of the delay that hits each node).
   const pFlight = clamp(0.15 + delayMin / 600, 0.15, 0.7); // growing departure exposure
   const pConnection = clamp(0.2 + delayMin / 300, 0.2, 0.85);
   const pArrival = clamp(0.35 + delayMin / 240, 0.35, 0.95);
-  // Hotel: arrival past 20:00 JST compresses the rest window; past 22:00 JST more; after midnight loses the night.
-  const pHotel = newArrMs > Date.UTC(2026, 7, 27, 15, 0, 0) ? 0.9 : newArrMs > Date.UTC(2026, 7, 27, 11, 0, 0) ? 0.55 : 0.3;
+  
+  // Hotel: arrival past 20:00 destination local time compresses the rest window; past 22:00 more; after midnight loses the night.
+  const pHotel = isAfterLocalHour(newArrMs, destTz, 22) ? 0.9 : isAfterLocalHour(newArrMs, destTz, 20) ? 0.55 : 0.3;
   // Transfer: the prepaid chauffeur slot cannot be held past its pickup time.
   const pTransfer = newArrMs >= transferMs ? 0.75 : 0.25;
   // Meeting: mission buffer thins once the evening rest margin is eaten into.
-  const pMeeting = newArrMs > meetingMs - 150 * 60000 ? 0.4 : newArrMs > Date.UTC(2026, 7, 27, 10, 30, 0) ? 0.35 : 0.12;
+  const pMeeting = newArrMs > meetingMs - 150 * 60000 ? 0.4 : (meetingMs - newArrMs < 6 * 3600000) ? 0.35 : 0.12;
 
-  // New JST clock time: planned arrival minute + delay, rendered as HH:MM.
+  // New clock time: planned arrival minute + delay, rendered as HH:MM.
   const plannedMin = Number(/T(\d{2}):(\d{2})/.exec(lastLeg.arrIso)?.[1] ?? 0) * 60 + Number(/T(\d{2}):(\d{2})/.exec(lastLeg.arrIso)?.[2] ?? 0);
   const newTotal = plannedMin + delayMin;
   const newClock = `${String(Math.floor((newTotal / 60) % 24)).padStart(2, '0')}:${String(newTotal % 60).padStart(2, '0')}`;
@@ -237,7 +244,7 @@ function buildDelayGraph(itinerary: Itinerary, disruption: DisruptionEvent): Tri
   return buildGraph(
     itinerary,
     { flight: pFlight, connection: pConnection, arrival: pArrival, hotel: pHotel, transfer: pTransfer, meeting: pMeeting },
-    `Delay detected on ${disruption.flightNumber} (+${delayMin}m — ${disruption.reason}). Arrival slips to ${newClock}${nextDay ? ' (+1d)' : ''} JST; connection, transfer and rest buffers compress but the mission remains recoverable.`,
+    `Delay detected on ${disruption.flightNumber} (+${delayMin}m — ${disruption.reason}). Arrival slips to ${newClock}${nextDay ? ' (+1d)' : ''}; connection, transfer and rest buffers compress but the mission remains recoverable.`,
   );
 }
 
@@ -249,9 +256,10 @@ function buildDelayGraph(itinerary: Itinerary, disruption: DisruptionEvent): Tri
 export function assessCandidateGraph(itinerary: Itinerary, candidate: FlightCandidate): TripImpactGraph {
   const arrMs = new Date(candidate.arrIso).getTime();
   const meeting = itinerary.commitments.find((c) => c.kind === 'MEETING');
-  const meetingMs = meeting ? new Date(meeting.atIso).getTime() : arrMs + 1;
-  const meetingReadyMs = meetingMs - 150 * 60000; // NRT → Marunouchi door-to-door
+  const meetingMs = meeting ? new Date(meeting.atIso).getTime() : new Date(itinerary.constraints.arrivalDeadlineIso).getTime();
+  const meetingReadyMs = meetingMs - 150 * 60000;
   const idealTargetMs = new Date(itinerary.constraints.arrivalDeadlineIso).getTime();
+  const destTz = extractTzOffset(candidate.arrIso);
 
   // --- deterministic per-node probabilities --------------------------------
   // Flight continuity risk from on-time performance of the weakest leg.
@@ -266,18 +274,19 @@ export function assessCandidateGraph(itinerary: Itinerary, candidate: FlightCand
 
   // Hotel: before ideal target → ok; late-night (after 22:00) → compressed rest;
   // arrival next morning → night lost.
-  const pHotel = arrMs <= idealTargetMs ? (isAfterLocalHour(arrMs, 9, 22) ? 0.25 : 0.1) : 0.9;
+  const pHotel = arrMs <= idealTargetMs ? (isAfterLocalHour(arrMs, destTz, 22) ? 0.25 : 0.1) : 0.9;
 
-  // Transfer: prepaid car booked 20:30 JST — arrivals after that need a rebook.
-  const transferSlotMs = Date.UTC(2026, 7, 27, 11, 30, 0); // 20:30 JST
+  // Transfer: prepaid car slot — arrivals after scheduled transfer need a rebook.
+  const transfer = itinerary.commitments.find((c) => c.kind === 'TRANSFER');
+  const transferSlotMs = transfer ? new Date(transfer.atIso).getTime() : arrMs - 60000;
   const pTransfer = arrMs <= transferSlotMs ? 0.1 : 0.85;
 
   // Mission: comfortable buffer / thin overnight buffer / can't make it.
   let pMeeting: number;
   if (arrMs <= meetingReadyMs) {
-    pMeeting = isAfterLocalHour(arrMs, 9, 22) ? 0.12 : 0.06;
+    pMeeting = isAfterLocalHour(arrMs, destTz, 22) ? 0.12 : 0.06;
   } else if (arrMs <= meetingMs) {
-    pMeeting = 0.92; // lands before meeting starts but cannot reach Marunouchi in time
+    pMeeting = 0.92; // lands before meeting starts but cannot reach venue in time
   } else {
     pMeeting = 1.0;
   }
@@ -285,7 +294,7 @@ export function assessCandidateGraph(itinerary: Itinerary, candidate: FlightCand
   return buildGraph(
     itinerary,
     { flight: pFlight, connection: pConnection, arrival: pArrival, hotel: pHotel, transfer: pTransfer, meeting: pMeeting },
-    `Residual risk if ${candidate.label} is booked: arrival ${fmtTime(candidate.arrIso)} JST.`,
+    `Residual risk if ${candidate.label} is booked: arrival ${fmtTime(candidate.arrIso)}.`,
   );
 }
 
@@ -343,3 +352,15 @@ export function fmtTime(isoStr: string): string {
   const m = /T(\d{2}):(\d{2})/.exec(isoStr);
   return m ? `${m[1]}:${m[2]}` : isoStr;
 }
+
+/** Extract timezone offset in hours from ISO 8601 string (e.g. +09:00 -> 9, -04:00 -> -4) */
+export function extractTzOffset(isoStr: string): number {
+  if (!isoStr) return 0;
+  const match = /([+-])(\d{2}):(\d{2})$/.exec(isoStr);
+  if (!match) return 0;
+  const sign = match[1] === '-' ? -1 : 1;
+  const hours = Number(match[2]);
+  const mins = Number(match[3]);
+  return sign * (hours + mins / 60);
+}
+

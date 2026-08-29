@@ -250,15 +250,15 @@ export function HowItWorks({ providerMode }: Props) {
                 {[
                   'Next.js 16 App Router',
                   'TypeScript 5 strict',
-                  'SSE route handlers',
-                  'Prisma + SQLite ledger',
-                  'z-ai-web-dev-sdk (backend-only LLM)',
-                  'framer-motion',
-                  'zero external services required',
+                  'Qwen 2.5 (Alibaba Cloud Model Studio)',
+                  'Atlas Flight Booking GDS',
+                  'Qoder Agentic Workspace (MCP Server)',
+                  'Prisma Transaction Ledger',
+                  'SSE Route Telemetry',
                 ].map((t) => (
                   <span
                     key={t}
-                    className="rounded border border-zinc-800 bg-zinc-900/60 px-1.5 py-0.5 font-mono text-[11px] text-zinc-500"
+                    className="rounded border border-zinc-800 bg-zinc-900/60 px-1.5 py-0.5 font-mono text-[11px] text-zinc-400"
                   >
                     {t}
                   </span>

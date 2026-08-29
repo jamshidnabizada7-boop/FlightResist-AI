@@ -47,7 +47,7 @@ export function PrintSummary({ trip }: Props) {
       {/* Itinerary */}
       <div className="mb-2">
         <div className="mb-0.5 text-[10px] font-extrabold uppercase tracking-wider text-black">
-          1 · Itinerary (SIN → NRT)
+          1 · Itinerary ({trip.itinerary.origin} → {trip.itinerary.destination})
         </div>
         {trip.itinerary.legs.map((l) => (
           <Row

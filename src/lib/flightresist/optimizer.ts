@@ -28,16 +28,17 @@ export function computeSubScores(
   residualRisk: number,
 ): SubScores {
   const arrMs = new Date(candidate.arrIso).getTime();
-  const originalArrMs = new Date(ORIGINAL_ARRIVAL_ISO).getTime();
+  const lastLegArr = itinerary.legs[itinerary.legs.length - 1]?.arrIso;
+  const originalArrMs = lastLegArr ? new Date(lastLegArr).getTime() : new Date(ORIGINAL_ARRIVAL_ISO).getTime();
   const meeting = itinerary.commitments.find((c) => c.kind === 'MEETING');
-  const meetingMs = meeting ? new Date(meeting.atIso).getTime() : arrMs;
+  const meetingMs = meeting ? new Date(meeting.atIso).getTime() : new Date(itinerary.constraints.arrivalDeadlineIso).getTime();
   const meetingReadyMs = meetingMs - NRT_TO_MEETING_MIN * 60000;
   const delayHours = Math.max(0, (arrMs - originalArrMs) / 3600000);
 
   // S_arrival — punctuality vs original plan, with mission-protection penalty.
   let meetingPenalty = 0;
   if (arrMs > meetingMs) meetingPenalty = 85; // definitely misses the signing
-  else if (arrMs > meetingReadyMs) meetingPenalty = 65; // lands in time but cannot reach Marunouchi
+  else if (arrMs > meetingReadyMs) meetingPenalty = 65; // lands in time but cannot reach venue
   const sArrival = clamp(100 - 5 * delayHours - meetingPenalty, 5, 100);
 
   // S_connection — buffer comfort across layovers (direct = perfect).
@@ -50,11 +51,14 @@ export function computeSubScores(
   sConnection = clamp(sConnection, 0, 100);
 
   // S_price — headroom inside the rebooking budget.
-  const sPrice = clamp(100 * (1 - candidate.fareDiffUsd / itinerary.constraints.budgetUsd), 0, 100);
+  const budgetUsd = itinerary.constraints.budgetUsd || 200;
+  const sPrice = clamp(100 * (1 - candidate.fareDiffUsd / budgetUsd), 0, 100);
 
-  // S_baggage — allowance comfort vs the 1×23kg requirement.
-  const meetsPieces = candidate.baggagePieces >= itinerary.constraints.baggagePieces;
-  const meetsWeight = candidate.baggageWeightKg >= itinerary.constraints.baggageWeightKg;
+  // S_baggage — allowance comfort vs requirement.
+  const reqPieces = itinerary.constraints.baggagePieces || 1;
+  const reqWeight = itinerary.constraints.baggageWeightKg || 23;
+  const meetsPieces = candidate.baggagePieces >= reqPieces;
+  const meetsWeight = candidate.baggageWeightKg >= reqWeight;
   let sBaggage: number;
   if (meetsPieces && meetsWeight) {
     sBaggage = candidate.baggagePieces >= 2 || candidate.baggageWeightKg >= 46 ? 100 : 90;
@@ -90,9 +94,10 @@ export function recoveryScore(s: SubScores): number {
  */
 export function rankOptions(survivors: FlightCandidate[], itinerary: Itinerary): ScoredOption[] {
   const meeting = itinerary.commitments.find((c) => c.kind === 'MEETING');
-  const meetingMs = meeting ? new Date(meeting.atIso).getTime() : 0;
+  const meetingMs = meeting ? new Date(meeting.atIso).getTime() : new Date(itinerary.constraints.arrivalDeadlineIso).getTime();
   const meetingReadyMs = meetingMs - NRT_TO_MEETING_MIN * 60000;
-  const originalArrMs = new Date(ORIGINAL_ARRIVAL_ISO).getTime();
+  const lastLegArr = itinerary.legs[itinerary.legs.length - 1]?.arrIso;
+  const originalArrMs = lastLegArr ? new Date(lastLegArr).getTime() : new Date(ORIGINAL_ARRIVAL_ISO).getTime();
 
   const scored = survivors.map((candidate) => {
     const residualGraph = assessCandidateGraph(itinerary, candidate);
@@ -150,18 +155,19 @@ function reasonFor(
   itinerary: Itinerary,
 ): string {
   const budgetLeft = itinerary.constraints.budgetUsd - s.candidate.fareDiffUsd;
+  const meeting = itinerary.commitments.find((cm) => cm.kind === 'MEETING');
+  const missionTitle = meeting?.label || itinerary.mission?.title || 'contract signing';
   if (status === 'RECOMMENDED') {
-    const meeting = itinerary.commitments.find((cm) => cm.kind === 'MEETING');
-    const meetingMs = meeting ? new Date(meeting.atIso).getTime() : Infinity;
+    const meetingMs = meeting ? new Date(meeting.atIso).getTime() : new Date(itinerary.constraints.arrivalDeadlineIso).getTime();
     return s.makesMeeting
-      ? `Preserves the 08:30 signing, lands with ${Math.max(1, Math.round((meetingMs - new Date(s.candidate.arrIso).getTime()) / 3600000))}h of buffer, and keeps $${Math.max(0, Math.round(budgetLeft))} of budget headroom.`
+      ? `Preserves the ${missionTitle}, lands with ${Math.max(1, Math.round((meetingMs - new Date(s.candidate.arrIso).getTime()) / 3600000))}h of buffer, and keeps $${Math.max(0, Math.round(budgetLeft))} of budget headroom.`
       : `Best achievable multi-criteria balance at R=${s.recovery}.`;
   }
   if (status === 'SECONDARY') {
     return `Strong alternative (R=${s.recovery}) but $${s.candidate.fareDiffUsd} fare delta buys marginal gain over the recommended option.`;
   }
   if (!s.makesMeeting) {
-    return `Misses the 08:30 signing — arrival ${fmtArr(s.candidate.arrIso)} cannot clear NRT and reach Marunouchi in time.`;
+    return `Misses the ${missionTitle} — arrival ${fmtArr(s.candidate.arrIso)} cannot clear ${itinerary.destination} in time.`;
   }
   return `Weakest multi-criteria score (R=${s.recovery}) — dominated on arrival and risk dimensions.`;
 }
@@ -175,3 +181,4 @@ function fmtArr(iso: string): string {
 function round1(v: number): number {
   return Math.round(v * 10) / 10;
 }
+

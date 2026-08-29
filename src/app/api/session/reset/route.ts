@@ -27,9 +27,10 @@ async function postReset(req: NextRequest, sessionId: string): Promise<NextRespo
   const log = logger.withRequestId(requestId);
   log.info('Session reset request');
 
-  // Rate limit: 5 requests per minute per IP
+  // Rate limit: 60/min in dev/test/demo, 15/min in prod
   const ip = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? 'unknown';
-  const { allowed, remaining, resetMs } = rateLimit(`reset:${ip}`, 5);
+  const limit = process.env.NODE_ENV !== 'production' || process.env.ATLAS_MODE === 'demo' ? 60 : 15;
+  const { allowed, remaining, resetMs } = rateLimit(`reset:${ip}`, limit);
   if (!allowed) {
     log.warn('Rate limit exceeded', { ip, resetMs });
     return NextResponse.json(

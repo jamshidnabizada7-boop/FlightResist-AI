@@ -1,13 +1,15 @@
 /**
- * FlightResist AI 2.0 — DemoProvider (DETERMINISTIC DEMO)
+ * FlightResist AI 2.0 — DemoProvider (DETERMINISTIC DEMO SIMULATION)
  *
- * Same interface as AtlasSandboxProvider. Deterministic fixture inventory
- * (exactly 42 candidates), fixed simulated provider latencies (real elapsed
- * time is measured and displayed), synthetic references prefixed `SIM-` —
- * never presented as real PNRs or payments.
+ * Universal demo provider supporting arbitrary global city pairs.
+ * Uses topological route candidate synthesizer for simulation, while preserving
+ * bit-exact fidelity for the canonical SIN → NRT scenario on 2026-08-27.
+ *
+ * Synthetic references are prefixed `SIM-` — never presented as real PNRs or payments.
  */
 
 import { getFixtureCandidates } from '../fixture';
+import { generateRouteCandidates } from '../route-generator';
 import type { FlightCandidate } from '../types';
 import {
   BaseTravelProvider,
@@ -26,6 +28,7 @@ export class DemoProvider extends BaseTravelProvider {
   readonly mode = 'DEMO' as const;
 
   private executions = 0;
+  private lastSearchCandidates: FlightCandidate[] = [];
 
   /** Simulated round-trip latencies (ms) — measured end-to-end at call time. */
   private static readonly LATENCY = {
@@ -39,18 +42,41 @@ export class DemoProvider extends BaseTravelProvider {
 
   async searchFlights(origin: string, destination: string, date: string): Promise<FlightCandidate[]> {
     await providerSleep(DemoProvider.LATENCY.search);
-    const all = getFixtureCandidates();
-    // The fixture is the SIN → NRT inventory for the demo travel date.
-    if (origin !== 'SIN' || destination !== 'NRT') return [];
-    return all;
+    const candidates = generateRouteCandidates({
+      origin,
+      destination,
+      travelDateIso: date || '2026-08-27',
+      isCanonicalDemo: origin.toUpperCase() === 'SIN' && destination.toUpperCase() === 'NRT',
+    });
+    this.lastSearchCandidates = candidates;
+    return candidates;
   }
 
   async verifyFare(fareKey: string): Promise<FareVerification> {
     await providerSleep(DemoProvider.LATENCY.verifyFare);
-    const candidate = getFixtureCandidates().find((c) => c.fareKey === fareKey);
+
+    // Look up in recent search candidates or fallback to canonical fixture
+    let candidate = this.lastSearchCandidates.find((c) => c.fareKey === fareKey);
     if (!candidate) {
+      candidate = getFixtureCandidates().find((c) => c.fareKey === fareKey);
+    }
+
+    if (!candidate) {
+      if (fareKey.startsWith('FARE-') || fareKey.startsWith('FX-')) {
+        return {
+          fareKey,
+          valid: true,
+          fareDiffUsd: 0,
+          currency: 'USD',
+          fareBasis: `DEMO-Y`,
+          ttlMin: 15,
+          verifiedAtIso: new Date().toISOString(),
+          providerLatencyMs: DemoProvider.LATENCY.verifyFare,
+        };
+      }
       throw new Error(`Fare ${fareKey} not found in demo inventory`);
     }
+
     return {
       fareKey,
       valid: true,

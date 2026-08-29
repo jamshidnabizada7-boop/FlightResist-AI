@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   CircleDashed,
   CreditCard,
+  ExternalLink,
   Loader2,
   Plane,
   RotateCcw,
@@ -31,6 +32,7 @@ interface Props {
   result: ExecutionResult | null;
   executing: boolean;
   onRetry: () => void;
+  onSwitchToDemo?: () => void;
 }
 
 interface StepDef {
@@ -84,6 +86,7 @@ export function ExecutionModal({
   result,
   executing,
   onRetry,
+  onSwitchToDemo,
 }: Props) {
   const liveSteps = useMemo(() => {
     const map = new Map<number, AgentEvent>();
@@ -102,6 +105,20 @@ export function ExecutionModal({
 
   const completed = result !== null && !executing;
   const failed = result?.status === 'FAILED';
+
+  const isUnbookable = Boolean(
+    result?.error?.includes('UNBOOKABLE_OFFER') ||
+    result?.error?.includes('reference-only') ||
+    result?.error?.includes('activation') ||
+    result?.error?.includes('ticketing blocked')
+  );
+  const isBalanceCheck = Boolean(
+    result?.error?.includes('PAYMENT_BALANCE_CHECK_REQUIRED') ||
+    result?.error?.includes('balance check') ||
+    result?.error?.includes('411')
+  );
+  const orderUrlMatch = result?.error?.match(/https?:\/\/[^\s)]+/);
+  const orderUrl = orderUrlMatch ? orderUrlMatch[0] : 'https://resources.atriptech.com';
 
   const stepState = (i: number): 'done' | 'active' | 'pending' => {
     if (completed) {
@@ -134,7 +151,7 @@ export function ExecutionModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto border-border bg-background p-0 text-foreground shadow-2xl shadow-black/60">
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto overflow-x-hidden border-border bg-background p-0 text-foreground shadow-2xl shadow-black/60">
         {/* amber accent hairline */}
         <div className="h-px bg-gradient-to-r from-transparent via-amber-500/60 to-transparent" />
         {/* header */}
@@ -239,20 +256,73 @@ export function ExecutionModal({
             }`}
           >
             {failed ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <XCircle className="h-5 w-5 text-red-400" />
-                  <span className="font-mono text-sm font-bold text-red-400">FAILED</span>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <XCircle className="h-5 w-5 text-red-400" />
+                    <span className="font-mono text-sm font-bold text-red-400">FAILED</span>
+                  </div>
+                  <span className="rounded border border-red-500/30 bg-red-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase text-red-300">
+                    {isUnbookable
+                      ? 'Unbookable Sandbox Offer'
+                      : isBalanceCheck
+                        ? 'Balance Check Required'
+                        : 'Execution Error'}
+                  </span>
                 </div>
-                <p className="mt-2 text-[11.5px] leading-relaxed text-zinc-400">{result.error}</p>
-                <Button
-                  onClick={onRetry}
-                  className="mt-3 h-9 gap-2 rounded-md border border-red-500/40 bg-red-500/10 text-xs font-bold text-red-300 transition-all hover:bg-red-500/20 active:scale-[0.97] focus-visible:ring-red-400/60"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  RETRY EXECUTION
-                </Button>
-              </>
+
+                <div className="rounded-lg border border-red-500/20 bg-red-500/[0.04] p-3 text-[11.5px] leading-relaxed text-zinc-300">
+                  <p className="font-medium text-red-200">
+                    {isUnbookable
+                      ? 'Live Sandbox Inventory Notice: The selected flight offer is reference-only comparison inventory. Direct live booking and automated ticketing require account ticketing activation in your ATRIP workspace.'
+                      : isBalanceCheck
+                        ? 'Payment Balance Check Required: Payment could not be confirmed because account balance may be insufficient. SKILL.md Safety Rule: Do NOT re-submit payment directly.'
+                        : result.error}
+                  </p>
+                  {result.error && (isUnbookable || isBalanceCheck) && (
+                    <p className="mt-1 font-mono text-[10px] text-zinc-400">
+                      Technical detail: {result.error}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  {onSwitchToDemo && (
+                    <Button
+                      onClick={() => {
+                        onSwitchToDemo();
+                        onOpenChange(false);
+                      }}
+                      className="h-9 gap-2 rounded-md bg-gradient-to-r from-amber-400 to-orange-500 px-4 text-xs font-extrabold text-neutral-950 shadow-md shadow-amber-500/20 hover:brightness-105"
+                    >
+                      <Zap className="h-3.5 w-3.5 fill-current" />
+                      ⚡ Switch to Demo Mode &amp; Simulate Recovery
+                    </Button>
+                  )}
+
+                  {(isUnbookable || isBalanceCheck) && (
+                    <a
+                      href={orderUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 px-3 text-xs font-semibold text-sky-300 hover:bg-sky-500/20"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      ↗ Open ATRIP Workspace
+                    </a>
+                  )}
+
+                  {!isBalanceCheck && !isUnbookable && (
+                    <Button
+                      onClick={onRetry}
+                      className="h-9 gap-2 rounded-md border border-red-500/40 bg-red-500/10 text-xs font-bold text-red-300 transition-all hover:bg-red-500/20 active:scale-[0.97] focus-visible:ring-red-400/60"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      RETRY EXECUTION
+                    </Button>
+                  )}
+                </div>
+              </div>
             ) : (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-2">

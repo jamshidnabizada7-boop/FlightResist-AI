@@ -31,7 +31,7 @@ export type ExecutionStatus =
   | 'SIMULATED';
 
 // ---------------------------------------------------------------------------
-// Itinerary
+// Itinerary & Profile Models (R1 & R2)
 // ---------------------------------------------------------------------------
 
 export interface FlightLeg {
@@ -51,6 +51,37 @@ export interface FlightLeg {
 export interface Layover {
   airport: string;
   minutes: number;
+}
+
+export interface PassengerProfile {
+  name: string;
+  ticketReference: string;
+  loyaltyProgram: string;
+  loyaltyTier: string;
+  loyaltyNumber: string;
+  nationality: string; // ISO 3166-1 alpha-2 / country name
+  passportNumber?: string;
+  passportExpiryIso?: string;
+  issuingCountry?: string;
+  contactEmail: string;
+  contactPhone: string;
+  checkedBags: number;
+  /** Legacy alias for backward compatibility */
+  loyalty: string;
+}
+
+export type MissionImportance = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+
+export interface MissionContext {
+  title: string;
+  description: string;
+  venue: string;
+  location: string;
+  dealValue?: number;
+  dealCurrency?: string;
+  importance: MissionImportance;
+  deadlineIso: string;
+  timezone: string;
 }
 
 export interface TripConstraints {
@@ -83,35 +114,88 @@ export interface Itinerary {
   destination: string;
   travelDateIso: string;
   legs: FlightLeg[];
-  passenger: {
-    name: string;
-    ticketReference: string;
-    loyalty: string;
-    checkedBags: number;
-  };
+  passenger: PassengerProfile;
+  mission: MissionContext;
+  /** Summary or purpose string (legacy backward-compatible alias). */
   tripPurpose: string;
   constraints: TripConstraints;
   commitments: TripCommitment[];
+}
+
+export interface PresetItinerary extends Itinerary {
+  id: string;
+  presetName: string;
+  tagline: string;
+  routeType: 'DIRECT' | '1_STOP' | 'MULTI_STOP';
+  tags: string[];
+}
+
+export interface PresetSummary {
+  id: string;
+  tripId: string;
+  name: string;
+  origin: string;
+  destination: string;
+  travelDateIso: string;
+  tagline: string;
+  routeType: 'DIRECT' | '1_STOP' | 'MULTI_STOP';
+  tags: string[];
+  legsCount: number;
+  primaryAirline: string;
+  dealValue?: number;
+  dealCurrency?: string;
+  budgetUsd: number;
+}
+
+export interface SavedItineraryRecord {
+  id: string;
+  tripId: string;
+  name: string;
+  origin: string;
+  destination: string;
+  travelDateIso: string;
+  isPreset: boolean;
+  presetId: string | null;
+  data: string; // JSON: Itinerary
+  userId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ---------------------------------------------------------------------------
 // Disruption
 // ---------------------------------------------------------------------------
 
+export type DisruptionType =
+  | 'CANCELLATION'
+  | 'DELAY'
+  | 'DIVERSION'
+  | 'TERMINAL_CLOSURE'
+  | 'MISCONNECT';
+
 export interface DisruptionEvent {
   flightNumber: string;
-  event: 'CANCELLATION' | 'DELAY' | 'DIVERSION';
+  event: DisruptionType;
   reason: string;
   detectedAtIso: string;
-  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   detail: string;
   /** Delay minutes — present when event = DELAY. */
   delayMinutes?: number;
+  /** Affected hub code for terminal/hub disruptions */
+  affectedHub?: string;
 }
 
 // ---------------------------------------------------------------------------
 // Candidates (provider search results)
 // ---------------------------------------------------------------------------
+
+export interface CandidateMetadata {
+  bookable: boolean;
+  priceStatus: 'current' | 'reference';
+  ticketingAvailable: boolean;
+  ticketingBlocker?: string;
+}
 
 export interface FlightCandidate {
   id: string;
@@ -135,6 +219,8 @@ export interface FlightCandidate {
   otp: number;
   /** Finalist metadata for the deterministic demo fixture (not used by engine logic). */
   fixtureClass?: 'over_budget' | 'unsafe_connection' | 'baggage_incompatible' | 'finalist';
+  /** Live Atlas provider metadata */
+  metadata?: CandidateMetadata;
 }
 
 // ---------------------------------------------------------------------------

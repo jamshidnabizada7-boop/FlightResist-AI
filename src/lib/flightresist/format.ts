@@ -6,10 +6,35 @@
 
 import { t } from '@/lib/i18n';
 
-export function fmtLocalTime(iso: string): { time: string; nextDay: boolean } {
+export function fmtLocalTime(iso: string, referenceDateIso?: string): { time: string; nextDay: boolean } {
+  if (!iso) return { time: '--:--', nextDay: false };
   const m = /T(\d{2}):(\d{2})/.exec(iso);
-  const nextDay = iso.startsWith('2026-08-28') || iso.startsWith('2026-08-29');
-  return { time: m ? `${m[1]}:${m[2]}` : '--:--', nextDay };
+  const time = m ? `${m[1]}:${m[2]}` : '--:--';
+
+  let nextDay = false;
+  if (referenceDateIso) {
+    const isoDate = iso.slice(0, 10);
+    const refDate = referenceDateIso.slice(0, 10);
+    nextDay = isoDate > refDate;
+  } else {
+    // Dynamic nextDay determination: check if calendar date is after the standard scenario start date (2026-08-27)
+    // or starts with canonical next-day dates
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+    if (match) {
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      if (year === 2026 && month === 8) {
+        nextDay = day > 27;
+      } else {
+        nextDay = iso.startsWith('2026-08-28') || iso.startsWith('2026-08-29');
+      }
+    } else {
+      nextDay = false;
+    }
+  }
+
+  return { time, nextDay };
 }
 
 export function fmtClock(iso: string): string {

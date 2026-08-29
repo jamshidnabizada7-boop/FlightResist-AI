@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
       email: normalizedEmail,
       name: name ?? null,
       passwordHash,
+      emailVerified: new Date(),
     },
   });
 

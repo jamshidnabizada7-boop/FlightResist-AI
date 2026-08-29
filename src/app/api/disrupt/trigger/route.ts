@@ -17,6 +17,7 @@ import { CANONICAL_DISRUPTION, DELAY_DISRUPTION, ITINERARY, scenarioById } from 
 import { triggerDisruption } from '@/lib/flightresist/pipeline';
 import { getSessionIdFromRequest, withSessionContext } from '@/lib/flightresist/session-id';
 import { resolveUserMode } from '@/lib/user-mode';
+import { getSession } from '@/lib/flightresist/store';
 import type { DisruptionEvent } from '@/lib/flightresist/types';
 
 export const dynamic = 'force-dynamic';
@@ -33,9 +34,10 @@ async function postDisruption(req: NextRequest, sessionId: string): Promise<Next
   const requestId = randomUUID();
   const log = logger.withRequestId(requestId);
 
-  // Rate limit: 3 requests per minute per IP
+  // Rate limit: 60/min in dev/test/demo, 15/min in prod
   const ip = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? 'unknown';
-  const { allowed, remaining, resetMs } = rateLimit(`trigger:${ip}`, 3);
+  const limit = process.env.NODE_ENV !== 'production' || process.env.ATLAS_MODE === 'demo' ? 60 : 15;
+  const { allowed, remaining, resetMs } = rateLimit(`trigger:${ip}`, limit);
   if (!allowed) {
     log.warn('Rate limit exceeded', { ip, resetMs });
     return NextResponse.json(
@@ -72,21 +74,24 @@ async function postDisruption(req: NextRequest, sessionId: string): Promise<Next
       userMode: userMode ?? 'env-default',
     });
 
+    const session = getSession(sessionId);
+    const activeItinerary = session.itinerary ?? ITINERARY;
+
     // Scenario shortcut: POST {"scenario": "delay", "delay_minutes": 90} or {"scenario": "cancellation"}
     const preset = scenarioById(body.scenario);
     if (preset) {
       let disruption = { ...preset.disruption, detectedAtIso: new Date().toISOString() };
-      // Custom delay duration for the delay scenario (clamped 15–180 for demo sanity).
+      // Custom delay duration for the delay scenario (clamped 15–1440).
       if (preset.id === 'delay' && body.delay_minutes !== undefined) {
-        const minutes = Math.max(15, Math.min(180, Math.round(Number(body.delay_minutes) || 45)));
-        const lastLeg = ITINERARY.legs[ITINERARY.legs.length - 1];
+        const minutes = Math.max(15, Math.min(1440, Math.round(Number(body.delay_minutes) || 45)));
+        const lastLeg = activeItinerary.legs[activeItinerary.legs.length - 1];
         const plannedMin = Number(/T(\d{2}):(\d{2})/.exec(lastLeg.arrIso)?.[1] ?? 0) * 60 + Number(/T(\d{2}):(\d{2})/.exec(lastLeg.arrIso)?.[2] ?? 0);
         const newTotal = plannedMin + minutes;
         const clock = `${String(Math.floor((newTotal / 60) % 24)).padStart(2, '0')}:${String(newTotal % 60).padStart(2, '0')}`;
         disruption = {
           ...disruption,
           delayMinutes: minutes,
-          detail: `CX520 (HKG 14:30 → NRT 19:45) delayed +${minutes}m; new arrival ${clock} JST. Ground transfer slot and evening buffer at risk — mission still recoverable.`,
+          detail: `${disruption.flightNumber} (${lastLeg.from} → ${lastLeg.to}) delayed +${minutes}m; new arrival ${clock}. Downstream buffers compress.`,
         };
       }
       const result = await triggerDisruption(disruption, sessionId, userMode);
@@ -94,13 +99,13 @@ async function postDisruption(req: NextRequest, sessionId: string): Promise<Next
       return NextResponse.json(result);
     }
 
-    const flightNumber = (body.flight_number ?? CANONICAL_DISRUPTION.flightNumber).toUpperCase();
-    const leg = ITINERARY.legs.find((l) => l.flightNumber.toUpperCase() === flightNumber);
+    const flightNumber = (body.flight_number ?? activeItinerary.legs[0]?.flightNumber ?? CANONICAL_DISRUPTION.flightNumber).toUpperCase();
+    const leg = activeItinerary.legs.find((l) => l.flightNumber.toUpperCase() === flightNumber);
     if (!leg) {
       return NextResponse.json(
         {
-          error: `Flight ${flightNumber} is not part of itinerary ${ITINERARY.tripId}`,
-          available_flights: ITINERARY.legs.map((l) => l.flightNumber),
+          error: `Flight ${flightNumber} is not part of itinerary ${activeItinerary.tripId}`,
+          available_flights: activeItinerary.legs.map((l) => l.flightNumber),
         },
         { status: 400 },
       );
@@ -108,21 +113,29 @@ async function postDisruption(req: NextRequest, sessionId: string): Promise<Next
 
     const event = (body.event?.toUpperCase() as DisruptionEvent['event']) ?? 'CANCELLATION';
     const isDelay = event === 'DELAY';
-    const delayMinutes = isDelay ? Math.max(5, Math.min(600, Number(body.delay_minutes ?? 45))) : undefined;
+    const delayMinutes = isDelay ? Math.max(15, Math.min(1440, Number(body.delay_minutes ?? 45))) : undefined;
+
+    const defaultReason = isDelay
+      ? DELAY_DISRUPTION.reason
+      : event === 'TERMINAL_CLOSURE'
+        ? 'Airport Terminal Safety Closure'
+        : event === 'MISCONNECT'
+          ? 'Inbound Feeder Connection Lost'
+          : CANONICAL_DISRUPTION.reason;
 
     const disruption: DisruptionEvent = {
       flightNumber: leg.flightNumber,
       event,
-      reason: body.reason ?? (isDelay ? DELAY_DISRUPTION.reason : CANONICAL_DISRUPTION.reason),
+      reason: body.reason ?? defaultReason,
       detectedAtIso: new Date().toISOString(),
-      severity: isDelay ? 'HIGH' : 'CRITICAL',
+      severity: isDelay ? (delayMinutes && delayMinutes >= 180 ? 'CRITICAL' : 'HIGH') : 'CRITICAL',
       delayMinutes,
       detail:
-        leg.flightNumber === CANONICAL_DISRUPTION.flightNumber && !isDelay
+        leg.flightNumber === CANONICAL_DISRUPTION.flightNumber && !isDelay && event === 'CANCELLATION' && activeItinerary.tripId === 'TRIP-SIN-NRT-2026'
           ? CANONICAL_DISRUPTION.detail
           : isDelay
             ? `${leg.flightNumber} (${leg.from} ${leg.depIso} → ${leg.to}) delayed +${delayMinutes}m — arrival slips; downstream buffers compress.`
-            : `${leg.flightNumber} (${leg.from} ${leg.depIso} → ${leg.to}) cancelled — downstream connections on this trip are impacted.`,
+            : `${leg.flightNumber} (${leg.from} ${leg.depIso} → ${leg.to}) ${event.toLowerCase()} — downstream journey impacted.`,
     };
 
     const result = await triggerDisruption(disruption, sessionId, userMode);

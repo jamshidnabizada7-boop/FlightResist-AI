@@ -8,6 +8,8 @@ import type { ConstraintResult, ScoredOption } from '@/lib/flightresist/types';
 interface Props {
   constraints: ConstraintResult | null;
   options: ScoredOption[] | null;
+  origin?: string;
+  destination?: string;
 }
 
 const REASON_LABELS: Record<string, string> = {
@@ -17,7 +19,7 @@ const REASON_LABELS: Record<string, string> = {
   baggage_incompatible: 'not enough baggage allowance',
 };
 
-export function DecisionFunnel({ constraints, options }: Props) {
+export function DecisionFunnel({ constraints, options, origin = 'SIN', destination = 'NRT' }: Props) {
   const total = constraints?.totalCandidates ?? 42;
   const recommended = options?.[0];
 
@@ -46,7 +48,7 @@ export function DecisionFunnel({ constraints, options }: Props) {
             {/* Stage 0 — searched */}
             <FunnelBar
               label="Flights searched"
-              rule="Searched flights SIN → NRT"
+              rule={`Searched flights ${origin} → ${destination}`}
               count={total}
               max={total}
               tone="bg-gradient-to-r from-zinc-700 to-zinc-600"

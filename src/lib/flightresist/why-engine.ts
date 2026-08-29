@@ -36,10 +36,11 @@ export function buildOptionWhy(
   const best = bestOption.candidate;
   const m = option.metrics;
 
-  const originalArrMs = new Date(ORIGINAL_ARRIVAL_ISO).getTime();
+  const lastLegArr = itinerary.legs[itinerary.legs.length - 1]?.arrIso;
+  const originalArrMs = lastLegArr ? new Date(lastLegArr).getTime() : new Date(ORIGINAL_ARRIVAL_ISO).getTime();
   const arrMs = new Date(c.arrIso).getTime();
   const meeting = itinerary.commitments.find((cm) => cm.kind === 'MEETING');
-  const meetingMs = meeting ? new Date(meeting.atIso).getTime() : 0;
+  const meetingMs = meeting ? new Date(meeting.atIso).getTime() : new Date(itinerary.constraints.arrivalDeadlineIso).getTime();
   const meetingReadyMs = meetingMs - NRT_TO_MEETING_MIN * 60000;
   const budgetLeft = itinerary.constraints.budgetUsd - c.fareDiffUsd;
   const meetsBudget = c.fareDiffUsd <= itinerary.constraints.budgetUsd;
@@ -60,10 +61,14 @@ export function buildOptionWhy(
     if (meeting) {
       preserved.push(`${meeting.label} — ${bufferHrs}h buffer`);
       whyRecommended.push(`Preserves ${meeting.label} with ${bufferHrs}h margin`);
+    } else {
+      preserved.push(`Mission schedule — ${bufferHrs}h buffer`);
+      whyRecommended.push(`Preserves mission schedule with ${bufferHrs}h margin`);
     }
   } else {
-    whyRejected.push(`Arrival ${fmtArr(c.arrIso)} cannot clear NRT → Marunouchi in time for ${meeting?.label ?? 'meeting'}`);
-    risks.push('Mission objective lost — contract signing missed');
+    const meetingTitle = meeting?.label ?? itinerary.mission?.title ?? 'meeting';
+    whyRejected.push(`Arrival ${fmtArr(c.arrIso)} cannot clear ${itinerary.destination} in time for ${meetingTitle}`);
+    risks.push(`Mission objective lost — ${meetingTitle} missed`);
   }
 
   // Budget
@@ -202,7 +207,8 @@ export function buildFactPayload(
   const recommended = options.find((o) => o.status === 'RECOMMENDED') ?? options[0];
   const rc = recommended.candidate;
 
-  const originalArrMs = new Date(ORIGINAL_ARRIVAL_ISO).getTime();
+  const lastLegArr = itinerary.legs[itinerary.legs.length - 1]?.arrIso;
+  const originalArrMs = lastLegArr ? new Date(lastLegArr).getTime() : new Date(ORIGINAL_ARRIVAL_ISO).getTime();
   const arrMs = new Date(rc.arrIso).getTime();
   const delayHours = round1(Math.max(0, (arrMs - originalArrMs) / 3600000));
   const meetsBudget = rc.fareDiffUsd <= itinerary.constraints.budgetUsd;

@@ -11,17 +11,18 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String?
-  image         String?
-  passwordHash  String?
-  emailVerified DateTime?
-  preferredMode String    @default("DEMO") // "DEMO" or "LIVE"
-  createdAt     DateTime  @default(now())
-  sessions      Session[]
-  accounts      Account[]
-  trips         TripSession[]
+  id               String           @id @default(cuid())
+  email            String           @unique
+  name             String?
+  image            String?
+  passwordHash     String?
+  emailVerified    DateTime?
+  preferredMode    String           @default("DEMO") // "DEMO" or "LIVE"
+  createdAt        DateTime         @default(now())
+  sessions         Session[]
+  accounts         Account[]
+  trips            TripSession[]
+  savedItineraries SavedItinerary[]
 }
 
 model Session {
@@ -68,9 +69,10 @@ model TripSession {
   state           String
   providerMode    String
   riskScore       Int      @default(0)
-  disruption      String? // JSON: DisruptionEvent
-  analysis        String? // JSON: RecoveryAnalysis (options, funnel, impact graph, explanation)
-  execution       String? // JSON: ExecutionResult
+  itinerary       String?  // JSON: active Itinerary object
+  disruption      String?  // JSON: DisruptionEvent
+  analysis        String?  // JSON: RecoveryAnalysis (options, funnel, impact graph, explanation)
+  execution       String?  // JSON: ExecutionResult
   selectedOption  String?
   disruptionSeq   Int      @default(0) // how many disruptions triggered this session
   userId          String?
@@ -113,4 +115,24 @@ model ExecutionOrder {
   createdAt       DateTime @default(now())
 
   @@index([sessionId, createdAt])
+}
+
+// User-saved and custom itineraries
+model SavedItinerary {
+  id            String   @id @default(cuid())
+  tripId        String
+  name          String
+  origin        String
+  destination   String
+  travelDateIso String
+  isPreset      Boolean  @default(false)
+  presetId      String?
+  data          String   // JSON: full Itinerary
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@index([origin, destination])
 }

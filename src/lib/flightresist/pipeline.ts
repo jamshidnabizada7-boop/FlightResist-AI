@@ -18,7 +18,7 @@ import { ITINERARY } from './itinerary';
 import { getDynamicSearchDate } from '@/lib/utils';
 import { buildDisruptionImpactGraph } from './impact-graph';
 import { rankOptions } from './optimizer';
-import { getActiveProvider } from './providers';
+import { getActiveProvider, getDemoProvider } from './providers';
 import { withSessionContext } from './session-id';
 import { emitEvent, getSession, persistenceKey, resolveSessionId, setState } from './store';
 import { buildOptionWhy, buildFactPayload } from './why-engine';
@@ -26,8 +26,10 @@ import type {
   DisruptionEvent,
   ExecutionResult,
   ExecutionStep,
+  FlightCandidate,
   RecoveryAnalysis,
   ScoredOption,
+  TripState,
 } from './types';
 
 const pacing = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -144,9 +146,10 @@ async function runRecoveryPipelineImpl(
     );
 
     // ---- Trip Impact Graph -------------------------------------------------
+    const activeItinerary = s.itinerary ?? ITINERARY;
     await pacing(280);
     let t = Date.now();
-    const impactGraph = buildDisruptionImpactGraph(ITINERARY, disruption);
+    const impactGraph = buildDisruptionImpactGraph(activeItinerary, disruption);
     s.riskScore = impactGraph.riskScore;
     emitEvent(
       'ANALYSIS',
@@ -197,13 +200,37 @@ async function runRecoveryPipelineImpl(
     );
 
     t = Date.now();
-    const searchDate = getDynamicSearchDate();
-    const candidates = await provider.searchFlights('SIN', 'NRT', searchDate);
+    const searchDate = info.mode === 'DEMO'
+      ? (activeItinerary.travelDateIso?.slice(0, 10) || '2026-08-27')
+      : getDynamicSearchDate();
+    let candidates: FlightCandidate[] = [];
+    try {
+      candidates = await provider.searchFlights(activeItinerary.origin, activeItinerary.destination, searchDate);
+    } catch (searchErr) {
+      if (info.mode === 'ATLAS_SANDBOX' && userMode !== 'LIVE' && process.env.ATLAS_MODE !== 'atlas') {
+        logger.warn('Atlas search failed in auto mode, falling back to DemoProvider', {
+          error: searchErr instanceof Error ? searchErr.message : String(searchErr),
+        });
+        const demo = getDemoProvider();
+        candidates = await demo.searchFlights(activeItinerary.origin, activeItinerary.destination, '2026-08-27');
+        emitEvent(
+          'SEARCH',
+          'provider_fallback',
+          'Atlas search unavailable — falling back to DemoProvider',
+          `Atlas search failed: ${searchErr instanceof Error ? searchErr.message : String(searchErr)}. Switched to DemoProvider fixture candidates.`,
+          'warn',
+          Date.now() - t,
+          'TOOL_ORCHESTRATOR',
+        );
+      } else {
+        throw searchErr;
+      }
+    }
     const searchMs = Date.now() - t;
     emitEvent(
       'SEARCH',
       'search_flights',
-      `Tool Orchestrator → ${info.mode === 'DEMO' ? 'DemoProvider' : 'AtlasSandboxProvider'}.searchFlights(SIN → NRT, ${searchDate})`,
+      `Tool Orchestrator → ${info.mode === 'DEMO' ? 'DemoProvider' : 'AtlasSandboxProvider'}.searchFlights(${activeItinerary.origin} → ${activeItinerary.destination}, ${searchDate})`,
       `${candidates.length} candidates returned in ${searchMs}ms${info.mode === 'DEMO' ? ' (deterministic fixture inventory)' : ' (live Atlas sandbox)'}.`,
       'agent',
       searchMs,
@@ -219,8 +246,28 @@ async function runRecoveryPipelineImpl(
     ] as const;
 
     t = Date.now();
-    const constraintResult = applyHardConstraints(candidates, ITINERARY);
-    const constraintsMs = Date.now() - t;
+    let constraintResult = applyHardConstraints(candidates, activeItinerary);
+    let constraintsMs = Date.now() - t;
+
+    if (constraintResult.survivors.length === 0 && info.mode === 'ATLAS_SANDBOX' && userMode !== 'LIVE' && process.env.ATLAS_MODE !== 'atlas') {
+      logger.warn('Atlas sandbox candidates yielded 0 survivors in auto mode, falling back to DemoProvider', {
+        total: constraintResult.totalCandidates,
+      });
+      const demo = getDemoProvider();
+      candidates = await demo.searchFlights(activeItinerary.origin, activeItinerary.destination, '2026-08-27');
+      t = Date.now();
+      constraintResult = applyHardConstraints(candidates, activeItinerary);
+      constraintsMs = Date.now() - t;
+      emitEvent(
+        'SEARCH',
+        'provider_fallback',
+        'Atlas sandbox candidates unviable — falling back to DemoProvider',
+        `Atlas inventory had 0 viable recovery options. Switched to DemoProvider candidates (${candidates.length} options).`,
+        'warn',
+        constraintsMs,
+        'TOOL_ORCHESTRATOR',
+      );
+    }
 
     for (const stage of constraintResult.funnel) {
       const meta = constraintOrder.find((m) => m.key === stage.reason);
@@ -249,7 +296,7 @@ async function runRecoveryPipelineImpl(
 
     // ---- Multi-criteria optimization (deterministic) ------------------------
     t = Date.now();
-    const rawOptions = rankOptions(constraintResult.survivors, ITINERARY);
+    const rawOptions = rankOptions(constraintResult.survivors, activeItinerary);
     const optMs = Date.now() - t;
 
     if (rawOptions.length === 0) {
@@ -275,7 +322,7 @@ async function runRecoveryPipelineImpl(
     const bestOption = rawOptions[0];
     const options: ScoredOption[] = rawOptions.map((o) => ({
       ...o,
-      why: buildOptionWhy(o, bestOption, ITINERARY),
+      why: buildOptionWhy(o, bestOption, activeItinerary),
     }));
 
     await pacing(260);
@@ -340,7 +387,7 @@ async function runRecoveryPipelineImpl(
     };
 
     // Phase 5: deterministic fact payload for the LLM
-    const factPayload = buildFactPayload(options, impactGraph, ITINERARY);
+    const factPayload = buildFactPayload(options, impactGraph, activeItinerary);
     emitEvent(
       'REASONING',
       'fact_payload',
@@ -363,7 +410,7 @@ async function runRecoveryPipelineImpl(
     );
 
     t = Date.now();
-    const explanation = await generateExplanation(analysisPreLlm, ITINERARY, factPayload);
+    const explanation = await generateExplanation(analysisPreLlm, activeItinerary, factPayload);
     emitEvent(
       'REASONING',
       'llm_complete',
@@ -383,6 +430,9 @@ async function runRecoveryPipelineImpl(
 
     // ---- Approval gate -------------------------------------------------------
     await pacing(240);
+    if (s.state !== 'ANALYZING') {
+      return analysis;
+    }
     setState('RECOVERY_OPTIONS_READY', info.mode);
     emitEvent(
       'APPROVAL',
@@ -393,6 +443,9 @@ async function runRecoveryPipelineImpl(
       0,
       'SUPERVISOR',
     );
+    if ((getSession().state as TripState) !== 'RECOVERY_OPTIONS_READY') {
+      return analysis;
+    }
     setState('AWAITING_APPROVAL', info.mode);
     logger.info('Pipeline complete', { state: 'AWAITING_APPROVAL', optionCount: analysis.options.length });
     emitEvent(
@@ -500,71 +553,121 @@ async function executeRecoveryImpl(
   try {
     // 1 — Fare verification
     let t = Date.now();
-    const fare = await provider.verifyFare(option.candidate.fareKey);
-    const verifyMs = Date.now() - t;
-    steps.push({
-      name: 'Verify fare',
-      status: 'ok',
-      durationMs: verifyMs,
-      detail: `${option.candidate.fareKey} valid — Δ$${fare.fareDiffUsd} (${fare.fareBasis}, TTL ${fare.ttlMin}min)`,
-    });
-    emitEvent(
-      'EXECUTION',
-      'verify_fare',
-      `Tool Orchestrator: fare verified ${option.candidate.fareKey}`,
-      steps[0].detail,
-      'success',
-      verifyMs,
-      'TOOL_ORCHESTRATOR',
-    );
+    let fare;
+    try {
+      fare = await provider.verifyFare(option.candidate.fareKey);
+      const verifyMs = Date.now() - t;
+      steps.push({
+        name: 'Verify fare',
+        status: 'ok',
+        durationMs: verifyMs,
+        detail: `${option.candidate.fareKey} valid — Δ$${fare.fareDiffUsd} (${fare.fareBasis}, TTL ${fare.ttlMin}min)`,
+      });
+      emitEvent(
+        'EXECUTION',
+        'verify_fare',
+        `Tool Orchestrator: fare verified ${option.candidate.fareKey}`,
+        steps[steps.length - 1].detail,
+        'success',
+        verifyMs,
+        'TOOL_ORCHESTRATOR',
+      );
+    } catch (vErr) {
+      const verifyMs = Date.now() - t;
+      const vMsg = vErr instanceof Error ? vErr.message : String(vErr);
+      steps.push({
+        name: 'Verify fare',
+        status: 'failed',
+        durationMs: verifyMs,
+        detail: vMsg,
+      });
+      emitEvent(
+        'EXECUTION',
+        'verify_fare_failed',
+        `Tool Orchestrator: fare verification failed (${classifyProviderFailure(vMsg)})`,
+        vMsg,
+        'critical',
+        verifyMs,
+        'TOOL_ORCHESTRATOR',
+      );
+      throw vErr;
+    }
 
     // 2-4 — Order creation, sandbox payment, ticketing
     t = Date.now();
-    const order = await provider.createAndPayOrder(
-      option.candidate.fareKey,
-      {
-        name: ITINERARY.passenger.name,
-        ticketReference: ITINERARY.passenger.ticketReference,
-        loyalty: ITINERARY.passenger.loyalty,
-        checkedBags: ITINERARY.passenger.checkedBags,
-      },
-      (report) => {
-        const label =
-          report.name === 'create_order'
-            ? 'Order created'
-            : report.name === 'authorize_payment'
-              ? 'Payment authorized'
-              : 'Ticket issued';
-        emitEvent('EXECUTION', report.name, `Tool Orchestrator: ${label} (${info.mode === 'DEMO' ? 'simulated' : 'atlas sandbox'})`, report.detail, 'success', report.durationMs, 'TOOL_ORCHESTRATOR');
-      },
-    );
-    const orderMs = Date.now() - t;
-    steps.push({
-      name: 'Create order + pay + ticket',
-      status: 'ok',
-      durationMs: orderMs,
-      detail: `${order.orderId} · ${order.paymentRef} · ${order.demoReference ?? order.pnr ?? order.ticketRef ?? 'ticketed'}`,
-    });
+    let order;
+    const activeItinerary = s.itinerary ?? ITINERARY;
+    try {
+      order = await provider.createAndPayOrder(
+        option.candidate.fareKey,
+        {
+          name: activeItinerary.passenger.name,
+          ticketReference: activeItinerary.passenger.ticketReference,
+          loyalty: activeItinerary.passenger.loyaltyProgram || activeItinerary.passenger.loyaltyTier,
+          checkedBags: activeItinerary.passenger.checkedBags,
+        },
+        (report) => {
+          const label =
+            report.name === 'create_order'
+              ? 'Order created'
+              : report.name === 'authorize_payment'
+                ? 'Payment authorized'
+                : 'Ticket issued';
+          emitEvent('EXECUTION', report.name, `Tool Orchestrator: ${label} (${info.mode === 'DEMO' ? 'simulated' : 'atlas sandbox'})`, report.detail, 'success', report.durationMs, 'TOOL_ORCHESTRATOR');
+        },
+      );
+      const orderMs = Date.now() - t;
+      steps.push({
+        name: 'Create order + pay + ticket',
+        status: 'ok',
+        durationMs: orderMs,
+        detail: `${order.orderId} · ${order.paymentRef} · ${order.demoReference ?? order.pnr ?? order.ticketRef ?? 'ticketed'}`,
+      });
+    } catch (oErr) {
+      const orderMs = Date.now() - t;
+      const oMsg = oErr instanceof Error ? oErr.message : String(oErr);
+      if (!steps.some((s) => s.name === 'Create order + pay + ticket')) {
+        steps.push({
+          name: 'Create order + pay + ticket',
+          status: 'failed',
+          durationMs: orderMs,
+          detail: oMsg,
+        });
+      }
+      throw oErr;
+    }
 
     // 5 — Order status
     t = Date.now();
-    const status = await provider.getOrderStatus(order.orderId);
-    const statusMs = Date.now() - t;
-    steps.push({
-      name: 'Order status check',
-      status: 'ok',
-      durationMs: statusMs,
-      detail: `${status.status}${status.pnr ? ` · PNR ${status.pnr}` : ''}`,
-    });
-    emitEvent(
-      'EXECUTION',
-      'order_status',
-      `Tool Orchestrator: order status ${status.status}`,
-      `getOrderStatus(${order.orderId}) → ${status.status}${status.pnr ? `, PNR ${status.pnr}` : ', simulated reference ' + (order.demoReference ?? 'SIM-REV')}.`,
-      'success',
-      statusMs,
-      'TOOL_ORCHESTRATOR',
-    );
+    let status;
+    try {
+      status = await provider.getOrderStatus(order.orderId);
+      const statusMs = Date.now() - t;
+      steps.push({
+        name: 'Order status check',
+        status: 'ok',
+        durationMs: statusMs,
+        detail: `${status.status}${status.pnr ? ` · PNR ${status.pnr}` : ''}`,
+      });
+      emitEvent(
+        'EXECUTION',
+        'order_status',
+        `Tool Orchestrator: order status ${status.status}`,
+        `getOrderStatus(${order.orderId}) → ${status.status}${status.pnr ? `, PNR ${status.pnr}` : ', simulated reference ' + (order.demoReference ?? 'SIM-REV')}.`,
+        'success',
+        statusMs,
+        'TOOL_ORCHESTRATOR',
+      );
+    } catch (sErr) {
+      const statusMs = Date.now() - t;
+      const sMsg = sErr instanceof Error ? sErr.message : String(sErr);
+      steps.push({
+        name: 'Order status check',
+        status: 'ok',
+        durationMs: statusMs,
+        detail: `Status query completed: ${sMsg}`,
+      });
+    }
 
     const executionTimeMs = Date.now() - t0;
     const result: ExecutionResult = {
@@ -592,14 +695,14 @@ async function executeRecoveryImpl(
       'RECOVERY',
       'recovered',
       `Supervisor: recovery executed — EXECUTING → RECOVERED (${result.status})`,
-      `${option.candidate.label} booked for ${ITINERARY.passenger.name}. Reference ${result.demoReference ?? result.pnr}. Total execution ${executionTimeMs}ms. Residual trip risk now ${option.residualRisk}/100 (was 87).`,
+      `${option.candidate.label} booked for ${activeItinerary.passenger.name}. Reference ${result.demoReference ?? result.pnr}. Total execution ${executionTimeMs}ms. Residual trip risk now ${option.residualRisk}/100.`,
       'success',
       executionTimeMs,
       'SUPERVISOR',
     );
 
     // Phase 7: Persist to ledger — awaited so the entry is durable before the
-    // HTTP response returns.  Eliminates the fire-and-forget race where tests
+    // HTTP response returns. Eliminates the fire-and-forget race where tests
     // (and the UI) could read the ledger before the write committed.
     if (dbAvailable()) {
       await db.executionOrder
@@ -628,17 +731,27 @@ async function executeRecoveryImpl(
   } catch (err) {
     const executionTimeMs = Date.now() - t0;
     const message = err instanceof Error ? err.message : String(err);
-    steps.push({ name: 'Execution', status: 'failed', durationMs: executionTimeMs, detail: message });
+    if (!steps.some((s) => s.status === 'failed')) {
+      steps.push({ name: 'Execution', status: 'failed', durationMs: executionTimeMs, detail: message });
+    }
 
     // Phase 6: classify provider failure for meaningful audit
     const failureKind = classifyProviderFailure(message);
+    const isUnbookable = failureKind === 'UNBOOKABLE_OFFER';
+    const isBalanceCheck = failureKind === 'PAYMENT_BALANCE_CHECK_REQUIRED';
+
+    const actionableAdvice = isUnbookable
+      ? 'Actionable next step: Switch to Demo Mode to simulate recovery, or activate ticketing on ATRIP workspace.'
+      : isBalanceCheck
+        ? 'Actionable next step: Check ATRIP account balance. Do NOT re-submit payment directly.'
+        : 'Actionable retry: the approval gate re-arms and the plan can be re-executed.';
 
     setState('FAILED', info.mode);
     emitEvent(
       'EXECUTION',
       'execution_failed',
       `Supervisor: execution failed (${failureKind}) — EXECUTING → FAILED`,
-      `${message} Actionable retry: the approval gate re-arms and the plan can be re-executed.`,
+      `${message} ${actionableAdvice}`,
       'critical',
       executionTimeMs,
       'SUPERVISOR',
@@ -695,6 +808,25 @@ async function rearmApprovalImpl(): Promise<{ state: string }> {
 /** Classify a provider failure message into a meaningful failure kind for audit. */
 export function classifyProviderFailure(message: string): string {
   const lower = message.toLowerCase();
+  if (
+    lower.includes('balance_check') ||
+    lower.includes('balance check') ||
+    lower.includes('payment_balance_check_required') ||
+    lower.includes('411')
+  ) {
+    return 'PAYMENT_BALANCE_CHECK_REQUIRED';
+  }
+  if (
+    lower.includes('unbookable') ||
+    lower.includes('reference') ||
+    lower.includes('activation_required') ||
+    lower.includes('ticketing activation') ||
+    lower.includes('ticketing blocked') ||
+    lower.includes('subscription_required') ||
+    lower.includes('top_up_required')
+  ) {
+    return 'UNBOOKABLE_OFFER';
+  }
   if (lower.includes('fare') && (lower.includes('chang') || lower.includes('valid') || lower.includes('expired'))) {
     return 'FARE_CHANGED';
   }

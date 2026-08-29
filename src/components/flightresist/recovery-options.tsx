@@ -8,6 +8,7 @@ import {
   Briefcase,
   CheckCircle2,
   Clock,
+  ExternalLink,
   Lock,
   Luggage,
   MinusCircle,
@@ -53,6 +54,7 @@ interface Props {
   onSelect: (id: string) => void;
   onApprove: () => void;
   approveBusy: boolean;
+  onSwitchToDemo?: () => void;
 }
 
 const STATUS_STYLE: Record<ScoredOption['status'], { badge: string; ring: string }> = {
@@ -210,6 +212,11 @@ function OptionCard({
         <Chip icon={Plane} tone={option.residualRisk <= 25 ? 'good' : option.residualRisk <= 50 ? 'warn' : 'bad'}>
           {t('recovery.remaining_risk', { risk: option.residualRisk })}
         </Chip>
+        {option.candidate.metadata?.priceStatus === 'reference' && (
+          <Chip icon={Banknote} tone="warn" title="Reference price — flight search and comparison only">
+            reference fare
+          </Chip>
+        )}
       </div>
 
       {/* Score breakdown */}
@@ -274,7 +281,7 @@ function Chip({
 }
 
 export const RecoveryOptions = forwardRef<RecoveryOptionsHandle, Props>(
-function RecoveryOptions({ options, state, providerMode, selectedId, onSelect, onApprove, approveBusy }, ref) {
+function RecoveryOptions({ options, state, providerMode, selectedId, onSelect, onApprove, approveBusy, onSwitchToDemo }, ref) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const live = providerMode === 'ATLAS_SANDBOX';
 
@@ -322,6 +329,66 @@ function RecoveryOptions({ options, state, providerMode, selectedId, onSelect, o
         transition={{ duration: 0.45, ease: 'easeOut' }}
         className="rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-500/[0.06] via-zinc-900/60 to-zinc-900/60 p-5"
       >
+        {canApprove && (() => {
+          const selectedOption = options.find((o) => o.id === selectedId);
+          const isReferenceOffer = Boolean(
+            selectedOption?.candidate.metadata?.priceStatus === 'reference' ||
+            selectedOption?.candidate.metadata?.bookable === false
+          );
+          const ticketingBlocker = selectedOption?.candidate.metadata?.ticketingBlocker;
+
+          if (live && isReferenceOffer) {
+            return (
+              <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/[0.08] p-4 text-left">
+                <div className="flex items-start gap-3">
+                  <Zap className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                  <div className="space-y-1.5 flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-xs font-bold uppercase tracking-wider text-amber-300">
+                        Live Sandbox Notice — Reference Inventory
+                      </span>
+                      <span className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9.5px] font-bold text-amber-300">
+                        Price Compare Only
+                      </span>
+                    </div>
+                    <p className="text-[11.5px] text-zinc-300 leading-relaxed">
+                      Option {selectedOption?.label} is real-time comparison inventory from the Atlas sandbox.
+                      Direct automated ticketing is locked until ATRIP ticketing activation is completed.
+                    </p>
+                    {ticketingBlocker && (
+                      <div className="font-mono text-[10.5px] text-amber-200">
+                        Blocker: {ticketingBlocker}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2 pt-2">
+                      {onSwitchToDemo && (
+                        <Button
+                          size="sm"
+                          onClick={onSwitchToDemo}
+                          className="h-8 gap-1.5 rounded-md bg-gradient-to-r from-amber-400 to-orange-500 px-3 text-xs font-bold text-neutral-950 shadow-md shadow-amber-500/20 hover:brightness-105"
+                        >
+                          <Zap className="h-3 w-3 fill-current" />
+                          ⚡ Switch to Demo Mode &amp; Simulate Recovery
+                        </Button>
+                      )}
+                      <a
+                        href="https://resources.atriptech.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 px-3 text-xs font-semibold text-sky-300 hover:bg-sky-500/20"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        ↗ Open ATRIP Workspace
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
         {canApprove && (() => {
           const rec = options.find((o) => o.id === selectedId);
           if (!rec?.why) return null;
@@ -454,14 +521,38 @@ function RecoveryOptions({ options, state, providerMode, selectedId, onSelect, o
                           </div>
                         </div>
                         {live ? (
-                          <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-2">
-                            <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                            <p className="text-[12px] leading-relaxed text-zinc-300">
-                              <span className="font-bold text-emerald-300">Live mode:</span>{' '}
-                              {t('confirm_dialog.live_warning')} We will rebook you on Option {opt.label} and
-                              mark your trip as <span className="font-bold text-zinc-100">recovered</span>.
-                            </p>
-                          </div>
+                          opt.candidate.metadata?.priceStatus === 'reference' || opt.candidate.metadata?.bookable === false ? (
+                            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/[0.08] px-3 py-2 text-left">
+                              <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+                              <div className="space-y-1">
+                                <p className="text-[12px] leading-relaxed text-zinc-300">
+                                  <span className="font-bold text-amber-300">Reference Inventory Notice:</span>{' '}
+                                  Option {opt.label} is real-time comparison inventory. Live booking in the sandbox requires ticketing activation.
+                                </p>
+                                {onSwitchToDemo && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setConfirmOpen(false);
+                                      onSwitchToDemo();
+                                    }}
+                                    className="text-[11px] font-bold text-amber-400 underline hover:text-amber-300"
+                                  >
+                                    ⚡ Switch to Demo Mode &amp; Simulate Recovery instead
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-2">
+                              <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                              <p className="text-[12px] leading-relaxed text-zinc-300">
+                                <span className="font-bold text-emerald-300">Live mode:</span>{' '}
+                                {t('confirm_dialog.live_warning')} We will rebook you on Option {opt.label} and
+                                mark your trip as <span className="font-bold text-zinc-100">recovered</span>.
+                              </p>
+                            </div>
+                          )
                         ) : (
                           <div className="flex items-start gap-2 rounded-md border border-red-500/20 bg-red-500/[0.04] px-3 py-2">
                             <span className="mt-0.5 text-amber-400">⚠</span>

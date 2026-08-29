@@ -25,15 +25,29 @@ export function applyHardConstraints(
 ): ConstraintResult {
   const { constraints } = itinerary;
   const hardLimitMs = new Date(constraints.hardArrivalLimitIso).getTime();
+  const itinBaseIso = itinerary.travelDateIso || itinerary.legs?.[0]?.depIso || '2026-08-27T00:00:00Z';
+  const itinBaseDateStr = itinBaseIso.slice(0, 10);
+  const itinBaseMs = new Date(`${itinBaseDateStr}T00:00:00Z`).getTime();
+  const deadlineOffsetMs = hardLimitMs - itinBaseMs;
 
   const stages: { reason: PruneReason; label: string; rule: string; test: (c: FlightCandidate) => boolean }[] = [
     {
       reason: 'misses_deadline',
       label: 'Required arrival deadline',
-      rule: `Arrival ≤ 2026-08-28 12:00 JST (trip salvaged only if in Tokyo by Friday noon)`,
+      rule: `Arrival ≤ ${constraints.hardArrivalLimitIso || constraints.arrivalDeadlineIso} (trip salvaged only if in ${itinerary.destination} on schedule)`,
       test: (c) => {
         const t = new Date(c.arrIso).getTime();
-        return isNaN(t) || t > hardLimitMs;
+        if (isNaN(t)) return true;
+        let effectiveLimitMs = hardLimitMs;
+        const cDepIso = c.depIso || c.legs?.[0]?.depIso;
+        if (cDepIso) {
+          const cDateStr = cDepIso.slice(0, 10);
+          if (cDateStr !== itinBaseDateStr) {
+            const cBaseMs = new Date(`${cDateStr}T00:00:00Z`).getTime();
+            effectiveLimitMs = cBaseMs + deadlineOffsetMs;
+          }
+        }
+        return t > effectiveLimitMs;
       },
     },
     {

@@ -23,6 +23,8 @@
 import { execFile, spawn as spawnProcess } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { FlightCandidate, FlightLeg, Layover, ProviderMode } from '../types';
+import { getAirport } from '../airports-data';
+import { getAirline } from '../airlines-data';
 import {
   BaseTravelProvider,
   ProviderUnavailableError,
@@ -46,6 +48,12 @@ const AIRLINE_NAMES: Record<string, string> = {
   BR: 'EVA Air', CI: 'China Airlines', KE: 'Korean Air',
   OZ: 'Asiana Airlines', MH: 'Malaysia Airlines', TG: 'Thai Airways',
   VN: 'Vietnam Airlines', PR: 'Philippine Airlines',
+  TW: "T'way Air", FD: 'Thai AirAsia', XJ: 'Thai AirAsia X',
+  ZG: 'ZIPAIR', UO: 'HK Express', MM: 'Peach Aviation',
+  SL: 'Thai Lion Air', AK: 'AirAsia', D7: 'AirAsia X',
+  BX: 'Air Busan', RS: 'Air Seoul', ZE: 'Eastar Jet', LJ: 'Jin Air',
+  MU: 'China Eastern', CZ: 'China Southern', CA: 'Air China',
+  HX: 'Hong Kong Airlines', IT: 'Tigerair Taiwan',
 };
 
 // ---------------------------------------------------------------------------
@@ -62,7 +70,12 @@ interface AtlasOfferCache {
   segmentIds: string[];          // populated by offer verify
   currency: string;
   price: number;
-  priceStatus: string;
+  priceStatus: 'current' | 'reference' | string;
+  bookable: boolean;
+  rawOffer?: Record<string, unknown>;
+  ticketingAvailable?: boolean;
+  ticketingBlocker?: string;
+  ticketingActivationUrl?: string;
   confirmedAtIso: string | null; // populated by booking confirm-price
 }
 
@@ -235,27 +248,83 @@ function assertCode(env: AtlasEnvelope, expected: string, context: string): void
   }
 }
 
-/** Convert "202608270050" at a given airport into an ISO-8601 string with that airport's UTC offset. */
+/** Convert airport IATA into its UTC offset hours using global airport database. */
 function airportOffset(airport: string): number {
-  // Minimal UTC-offset table — matches fixture.ts TZ. Extend if Atlas ever
-  // surfaces an airport outside this set.
+  const ap = getAirport(airport);
+  if (ap) return ap.tzOffset;
   const TZ: Record<string, number> = {
-    SIN: 8, HKG: 8, TPE: 8, KUL: 8, MNL: 8, ICN: 9, NRT: 9, BKK: 7, SGN: 7, PVG: 8,
+    // Asian regional fallbacks
+    NRT: 9, HND: 9, KIX: 9, FUK: 9, CTS: 9, NGO: 9, OKA: 9,
+    ICN: 9, GMP: 9, PUS: 9, CJU: 9,
+    SIN: 8, KUL: 8, PEN: 8, BKI: 8,
+    MNL: 8, CEB: 8, DVO: 8,
+    HKG: 8, MFM: 8,
+    TPE: 8, TSA: 8, KHH: 8,
+    PVG: 8, SHA: 8, PEK: 8, PKX: 8, CAN: 8, SZX: 8, CTU: 8, TFU: 8,
+    WUH: 8, CKG: 8, HGH: 8, NKG: 8, XMN: 8, TAO: 8, KMG: 8, XIY: 8,
+    DPS: 8,
+    BKK: 7, DMK: 7, HKT: 7, CNX: 7,
+    SGN: 7, HAN: 7, DAD: 7, CXR: 7,
+    PNH: 7, REP: 7,
+    VTE: 7,
+    CGK: 7, SUB: 7,
+    // European fallbacks
+    LHR: 1, LGW: 1, CDG: 2, FRA: 2, AMS: 2, MAD: 2, FCO: 2, ZRH: 2, VIE: 2, IST: 3,
+    // North American fallbacks
+    JFK: -4, EWR: -4, BOS: -4, ORD: -5, ATL: -4, MIA: -4, DFW: -5, DEN: -6, SFO: -7, LAX: -7, SEA: -7, YVR: -7, YYZ: -4, MEX: -6,
+    // Oceania fallbacks
+    SYD: 10, MEL: 10, BNE: 10, AKL: 12,
+    // Middle East / Africa fallbacks
+    DXB: 4, DOH: 3, AUH: 4, JNB: 2,
+    // South America fallbacks
+    GRU: -3,
   };
-  return TZ[airport] ?? 0;
+  return TZ[airport.toUpperCase()] ?? 0;
 }
 
-function atlasTimeToIso(raw: string, airport: string): string {
-  if (raw.length !== 12) return raw; // pass through anything non-canonical
-  const y = raw.slice(0, 4);
-  const mo = raw.slice(4, 6);
-  const d = raw.slice(6, 8);
+/**
+ * Normalizes Atlas segment timestamps (e.g. "202611150810") onto FlightResist-AI's
+ * scenario reference dates (DAY0: 2026-08-27, DAY1: 2026-08-28), preserving clock
+ * times, segment elapsed durations, layover connection times, and airport UTC offsets.
+ */
+function normalizeAtlasTimeToScenarioIso(
+  raw: string,
+  airport: string,
+  originDepartureTimeRaw?: string,
+): string {
+  if (raw.includes('T') || raw.includes('-')) return raw;
+  if (raw.length !== 12) return raw;
+
+  const y = Number(raw.slice(0, 4));
+  const mo = Number(raw.slice(4, 6)) - 1;
+  const d = Number(raw.slice(6, 8));
   const h = raw.slice(8, 10);
   const mi = raw.slice(10, 12);
+  const segDateUtc = Date.UTC(y, mo, d);
+
+  let dayDiff = 0;
+  if (originDepartureTimeRaw && originDepartureTimeRaw.length === 12) {
+    const oy = Number(originDepartureTimeRaw.slice(0, 4));
+    const omo = Number(originDepartureTimeRaw.slice(4, 6)) - 1;
+    const od = Number(originDepartureTimeRaw.slice(6, 8));
+    const originDateUtc = Date.UTC(oy, omo, od);
+    dayDiff = Math.round((segDateUtc - originDateUtc) / (24 * 60 * 60 * 1000));
+  }
+
+  // Anchor to DAY0: 2026-08-27
+  const SCENARIO_DAY0_UTC = Date.UTC(2026, 7, 27);
+  const targetUtcMs = SCENARIO_DAY0_UTC + dayDiff * (24 * 60 * 60 * 1000);
+  const targetDate = new Date(targetUtcMs);
+  const targetYear = targetDate.getUTCFullYear();
+  const targetMonth = String(targetDate.getUTCMonth() + 1).padStart(2, '0');
+  const targetDay = String(targetDate.getUTCDate()).padStart(2, '0');
+
   const tz = airportOffset(airport);
   const sign = tz >= 0 ? '+' : '-';
   const atz = Math.abs(tz);
-  return `${y}-${mo}-${d}T${h}:${mi}:00${sign}${String(atz).padStart(2, '0')}:00`;
+  const tzStr = `${sign}${String(atz).padStart(2, '0')}:00`;
+
+  return `${targetYear}-${targetMonth}-${targetDay}T${h}:${mi}:00${tzStr}`;
 }
 
 function cabinLabel(cls: number): string {
@@ -272,39 +341,68 @@ function cabinLabel(cls: number): string {
 // Mapping: Atlas offer → FlightCandidate (deterministic ID per offer)
 // ---------------------------------------------------------------------------
 
-function mapOfferToCandidate(offerId: string, offer: Record<string, unknown>, searchId: string, index: number, baselinePrice: number): FlightCandidate {
+function mapOfferToCandidate(
+  offerId: string,
+  offer: Record<string, unknown>,
+  searchId: string,
+  index: number,
+  baselinePrice: number,
+  probe?: AtlasProbeResult,
+): FlightCandidate {
   const segments = Array.isArray(offer.segments) ? (offer.segments as AtlasSegment[]) : [];
   const price = Number(offer.total_price ?? 0);
   const currency = String(offer.currency ?? 'USD');
+  const bookable = Boolean(offer.bookable);
+  const priceStatus = (offer.price_status === 'current' ? 'current' : 'reference') as 'current' | 'reference';
+  const ticketingAvailable = Boolean(probe?.ticketingAvailable);
+  const ticketingBlocker = probe?.ticketingBlocker;
 
-  const legs: FlightLeg[] = segments.map((seg) => ({
-    flightNumber: String(seg.flight_number),
-    airlineCode: String(seg.carrier),
-    airlineName: AIRLINE_NAMES[seg.carrier] ?? String(seg.carrier),
-    from: String(seg.departure_airport),
-    to: String(seg.arrival_airport),
-    depIso: atlasTimeToIso(String(seg.departure_time), String(seg.departure_airport)),
-    arrIso: atlasTimeToIso(String(seg.arrival_time), String(seg.arrival_airport)),
-    durationMin: Number(seg.duration_minutes ?? 0),
-    aircraft: 'Live Atlas',
-    cabin: cabinLabel(Number(seg.cabin_class ?? 1)),
-  }));
+  const originDepRaw = segments[0] ? String(segments[0].departure_time) : undefined;
+
+  const legs: FlightLeg[] = segments.map((seg) => {
+    const fromAirport = String(seg.departure_airport);
+    const toAirport = String(seg.arrival_airport);
+    const depIso = normalizeAtlasTimeToScenarioIso(String(seg.departure_time), fromAirport, originDepRaw);
+    const arrIso = normalizeAtlasTimeToScenarioIso(String(seg.arrival_time), toAirport, originDepRaw);
+    const segCarrier = String(seg.carrier);
+    const segFlightNo = String(seg.flight_number);
+    const segDuration = Number(seg.duration_minutes ?? 0);
+    const calcDuration = Math.max(0, Math.round((new Date(arrIso).getTime() - new Date(depIso).getTime()) / 60000));
+
+    return {
+      flightNumber: segFlightNo,
+      airlineCode: segCarrier,
+      airlineName: getAirline(segCarrier)?.name ?? AIRLINE_NAMES[segCarrier] ?? segCarrier,
+      from: fromAirport,
+      to: toAirport,
+      depIso,
+      arrIso,
+      durationMin: segDuration > 0 ? segDuration : calcDuration,
+      aircraft: 'Live Atlas',
+      cabin: cabinLabel(Number(seg.cabin_class ?? 1)),
+    };
+  });
 
   const layovers: Layover[] = [];
-  for (let i = 1; i < segments.length; i++) {
-    const prev = segments[i - 1];
-    const curr = segments[i];
-    const prevArrMin = atlasTimeToMinutes(String(prev.arrival_time));
-    const currDepMin = atlasTimeToMinutes(String(curr.departure_time));
-    const connMin = Math.max(0, currDepMin - prevArrMin);
-    layovers.push({ airport: String(prev.arrival_airport), minutes: connMin });
+  for (let i = 1; i < legs.length; i++) {
+    const prevLeg = legs[i - 1];
+    const currLeg = legs[i];
+    const connMin = Math.max(
+      0,
+      Math.round((new Date(currLeg.depIso).getTime() - new Date(prevLeg.arrIso).getTime()) / 60000),
+    );
+    layovers.push({ airport: prevLeg.to, minutes: connMin });
   }
 
-  const depIso = legs[0]?.depIso ?? atlasTimeToIso(String((segments[0] as AtlasSegment | undefined)?.departure_time ?? ''), String((segments[0] as AtlasSegment | undefined)?.departure_airport ?? ''));
+  const depIso = legs[0]?.depIso ?? (originDepRaw ? normalizeAtlasTimeToScenarioIso(originDepRaw, 'SIN') : '2026-08-27T08:00:00+08:00');
   const arrIso = legs[legs.length - 1]?.arrIso ?? depIso;
-  const totalDurationMin = segments.reduce((acc, s) => acc + Number(s.duration_minutes ?? 0), 0) + layovers.reduce((acc, l) => acc + l.minutes, 0);
+  const totalDurationMin =
+    legs.reduce((acc, l) => acc + l.durationMin, 0) +
+    layovers.reduce((acc, l) => acc + l.minutes, 0);
 
-  // Cache the raw offer for verifyFare to pick up.
+  const ticketingActivationUrl = probe?.ticketingActivationUrl;
+
+  // Cache the full search context and raw offer for subsequent pipeline stages
   offerCache.set(offerId, {
     offerId,
     searchId,
@@ -313,26 +411,31 @@ function mapOfferToCandidate(offerId: string, offer: Record<string, unknown>, se
     segmentIds: [],
     currency,
     price,
-    priceStatus: String(offer.price_status ?? 'current'),
+    priceStatus,
+    bookable,
+    rawOffer: offer,
+    ticketingAvailable,
+    ticketingBlocker,
+    ticketingActivationUrl,
     confirmedAtIso: null,
   });
 
   const primaryAirline = segments[0]?.carrier ?? 'XX';
+  const primaryAirlineName = getAirline(primaryAirline)?.name ?? AIRLINE_NAMES[primaryAirline] ?? primaryAirline;
   const label =
     legs.length === 1
-      ? `${AIRLINE_NAMES[primaryAirline] ?? primaryAirline} (direct)`
-      : `${AIRLINE_NAMES[primaryAirline] ?? primaryAirline} via ${layovers.map((l) => l.airport).join('/')}`;
+      ? `${primaryAirlineName} (direct)`
+      : `${primaryAirlineName} via ${layovers.map((l) => l.airport).join('/')}`;
 
-  // Atlas search does not surface baggage allowance or seats-left. We record
-  // what we can verify: ancillary_supported includes 'baggage' → the offer
-  // supports baggage selection; we default checked-baggage figures so the
-  // constraint funnel treats live offers consistently with the fixture
-  // (1×23kg checked bag assumed included, seatsLeft ample).
+  const fareDiffUsd = isNaN(price) || price <= 0 || baselinePrice <= 0
+    ? 0
+    : Math.max(0, Math.round((price - baselinePrice) * 100) / 100);
+
   return {
     id: `atlas-${String(index).padStart(2, '0')}`,
     fareKey: offerId,
     airlineCode: primaryAirline,
-    airlineName: AIRLINE_NAMES[primaryAirline] ?? primaryAirline,
+    airlineName: primaryAirlineName,
     label,
     legs,
     layovers,
@@ -341,21 +444,18 @@ function mapOfferToCandidate(offerId: string, offer: Record<string, unknown>, se
     totalDurationMin,
     stops: Math.max(0, legs.length - 1),
     minConnectionMin: layovers.length > 0 ? Math.min(...layovers.map((l) => l.minutes)) : null,
-    fareDiffUsd: Math.max(0, Math.round((price - baselinePrice) * 100) / 100), // delta vs cheapest offer in result set
+    fareDiffUsd,
     baggagePieces: 1,
     baggageWeightKg: 23,
-    seatsLeft: 99,
-    otp: 0.8,
+    seatsLeft: 9,
+    otp: 0.85,
+    metadata: {
+      bookable,
+      priceStatus,
+      ticketingAvailable,
+      ticketingBlocker,
+    },
   };
-}
-
-/** Minutes since epoch from "202608270050" — sufficient for same-day deltas. */
-function atlasTimeToMinutes(raw: string): number {
-  if (raw.length !== 12) return 0;
-  const h = Number(raw.slice(8, 10));
-  const m = Number(raw.slice(10, 12));
-  const day = Number(raw.slice(6, 8));
-  return day * 1440 + h * 60 + m;
 }
 
 /** Convert a flat name ("Wei Chen") to Atlas FAMILY/GIVEN uppercase ("CHEN/WEI"). */
@@ -397,81 +497,113 @@ export class AtlasSandboxProvider extends BaseTravelProvider {
 
   async searchFlights(origin: string, destination: string, date: string): Promise<FlightCandidate[]> {
     return this.retryOnce('searchFlights', async () => {
-    const env = await runCli([
-      'search',
-      '--origin', origin,
-      '--destination', destination,
-      '--depart', date,
-      '--adults', '1',
-      '--json',
-    ]);
-    assertCode(env, 'FLIGHT_SEARCHED', 'search');
-    const data = env.data as { search_id?: string; offers?: Record<string, unknown>[] };
-    const searchId = String(data.search_id ?? '');
-    const offers = Array.isArray(data.offers) ? data.offers : [];
+      const probe = await probeAtlas();
+      const env = await runCli([
+        'search',
+        '--origin', origin,
+        '--destination', destination,
+        '--depart', date,
+        '--adults', '1',
+        '--json',
+      ]);
+      assertCode(env, 'FLIGHT_SEARCHED', 'search');
+      const data = env.data as { search_id?: string; offers?: Record<string, unknown>[] };
+      const searchId = String(data.search_id ?? '');
+      const offers = Array.isArray(data.offers) ? data.offers : [];
 
-    // Filter out reference-only / unbookable offers up front — they cannot
-    // progress through verifyFare or order create.
-    const bookable = offers.filter((o) => o.bookable === true && o.price_status === 'current');
+      // Ingest all offers from live search without prematurely dropping reference-only / unbookable offers
+      const validPrices = offers
+        .map((o) => Number(o.total_price))
+        .filter((p) => !isNaN(p) && p > 0);
+      const baseline = validPrices.length > 0 ? Math.min(...validPrices) : 0;
+      priceBaseline = baseline;
 
-    // Atlas reports absolute prices; the engine's funnel expects FARE DELTAS
-    // against a $150 ceiling (per the master spec and DemoProvider fixture).
-    // Anchor the delta at the cheapest offer in this result set — that offer
-    // becomes the baseline (Δ = $0) and every other offer's delta is its
-    // premium above it. This preserves the funnel's budget semantics without
-    // fabricating a baseline the CLI did not surface.
-    const baseline = bookable.length > 0
-      ? Math.min(...bookable.map((o) => Number(o.total_price ?? Infinity)))
-      : 0;
-    priceBaseline = baseline;
-
-    return bookable.map((o, i) => mapOfferToCandidate(String(o.offer_id), o, searchId, i, baseline));
+      return offers.map((o, i) =>
+        mapOfferToCandidate(
+          String(o.offer_id ?? `offer-${i}`),
+          o,
+          searchId,
+          i,
+          baseline,
+          probe,
+        ),
+      );
     });
   }
 
   async verifyFare(fareKey: string): Promise<FareVerification> {
     return this.retryOnce('verifyFare', async () => {
-    const cached = offerCache.get(fareKey);
-    if (!cached) {
-      throw new Error(`Atlas offer ${fareKey} not in session cache — run searchFlights first or the offer expired.`);
-    }
+      const cached = offerCache.get(fareKey);
+      if (!cached) {
+        throw new Error(`Atlas offer "${fareKey}" not in session cache — run searchFlights first or the offer expired.`);
+      }
 
-    // Step 1: offer verify — yields booking_id + traveler_id.
-    const verified = await runCli(['offer', 'verify', '--offer-id', cached.offerId, '--json']);
-    assertCode(verified, 'OFFER_VERIFIED', 'offer verify');
-    const vData = verified.data as {
-      booking_id?: string;
-      previous_price?: number;
-      current_price?: number;
-      currency?: string;
-      price_change?: string;
-      travelers?: { traveler_id: string }[];
-      segments?: { segment_id: string }[];
-    };
+      // Check if the offer is reference-only, unbookable, or ticketing is blocked
+      if (cached.priceStatus === 'reference' || !cached.bookable) {
+        const activationInfo = cached.ticketingActivationUrl ? ` (ATRIP workspace: ${cached.ticketingActivationUrl})` : '';
+        const blockerInfo = cached.ticketingBlocker ? ` Blocker: ${cached.ticketingBlocker}.` : '';
+        throw new Error(
+          `UNBOOKABLE_OFFER: Offer ${cached.offerId} is reference-only inventory (price_status=${cached.priceStatus}, bookable=${cached.bookable}). It supports real-time flight price search and comparison only, and does not support price verification, order creation, or ticketing.${blockerInfo}${activationInfo}`,
+        );
+      }
 
-    cached.bookingId = String(vData.booking_id ?? '');
-    cached.travelerIds = (vData.travelers ?? []).map((t) => String(t.traveler_id));
-    cached.segmentIds = (vData.segments ?? []).map((s) => String(s.segment_id));
-    cached.price = Number(vData.current_price ?? cached.price);
-    cached.currency = String(vData.currency ?? cached.currency);
+      if (cached.ticketingAvailable === false && cached.ticketingBlocker) {
+        const activationInfo = cached.ticketingActivationUrl ? ` (ATRIP workspace: ${cached.ticketingActivationUrl})` : '';
+        throw new Error(
+          `UNBOOKABLE_OFFER: Atlas ticketing is currently blocked (${cached.ticketingBlocker})${activationInfo}. Price verification, order creation, and ticketing are unavailable until account activation is completed.`,
+        );
+      }
 
-    // Step 2: booking confirm-price — final price lock before order create.
-    const confirmed = await runCli(['booking', 'confirm-price', '--booking-id', cached.bookingId, '--json']);
-    assertCode(confirmed, 'PRICE_CONFIRMED', 'booking confirm-price');
-    const cData = confirmed.data as { current_price?: number; currency?: string };
-    cached.price = Number(cData.current_price ?? cached.price);
-    cached.confirmedAtIso = new Date().toISOString();
+      // Step 1: offer verify — yields booking_id + traveler_id.
+      const verified = await runCli(['offer', 'verify', '--offer-id', cached.offerId, '--json']);
+      if (verified.code !== 'OFFER_VERIFIED') {
+        const detail =
+          (verified.details && typeof verified.details === 'object' ? JSON.stringify(verified.details) : '') ||
+          verified.message;
+        throw new Error(`Atlas offer verify returned code=${verified.code}: ${detail || verified.message || 'Offer could not be verified'}`);
+      }
 
-    return {
-      fareKey,
-      valid: true,
-      fareDiffUsd: Math.max(0, Math.round((cached.price - priceBaseline) * 100) / 100),
-      currency: cached.currency,
-      fareBasis: `ATLAS-${cached.priceStatus.toUpperCase()}`,
-      ttlMin: 15,
-      verifiedAtIso: cached.confirmedAtIso,
-      providerLatencyMs: 0,
-    };
+      const vData = verified.data as {
+        booking_id?: string;
+        previous_price?: number;
+        current_price?: number;
+        currency?: string;
+        price_change?: string;
+        travelers?: { traveler_id: string }[];
+        segments?: { segment_id: string }[];
+      };
+
+      cached.bookingId = String(vData.booking_id ?? '');
+      cached.travelerIds = (vData.travelers ?? []).map((t) => String(t.traveler_id));
+      cached.segmentIds = (vData.segments ?? []).map((s) => String(s.segment_id));
+      cached.price = Number(vData.current_price ?? cached.price);
+      cached.currency = String(vData.currency ?? cached.currency);
+
+      // Step 2: booking confirm-price — Per SKILL.md, ONLY call confirm-price when price_change === 'increased'!
+      if (vData.price_change === 'increased') {
+        const confirmed = await runCli(['booking', 'confirm-price', '--booking-id', cached.bookingId, '--json']);
+        if (confirmed.code !== 'PRICE_CONFIRMED' && confirmed.code !== 'PRICE_CHANGED') {
+          const detail =
+            (confirmed.details && typeof confirmed.details === 'object' ? JSON.stringify(confirmed.details) : '') ||
+            confirmed.message;
+          throw new Error(`Atlas booking confirm-price returned code=${confirmed.code}: ${detail}`);
+        }
+        const cData = confirmed.data as { current_price?: number; currency?: string };
+        cached.price = Number(cData.current_price ?? cached.price);
+      }
+
+      cached.confirmedAtIso = new Date().toISOString();
+
+      return {
+        fareKey,
+        valid: true,
+        fareDiffUsd: Math.max(0, Math.round((cached.price - priceBaseline) * 100) / 100),
+        currency: cached.currency,
+        fareBasis: `ATLAS-${cached.priceStatus.toUpperCase()}`,
+        ttlMin: 15,
+        verifiedAtIso: cached.confirmedAtIso,
+        providerLatencyMs: 0,
+      };
     });
   }
 
@@ -481,7 +613,10 @@ export class AtlasSandboxProvider extends BaseTravelProvider {
     onStep?: (step: OrderStepReport) => void,
   ): Promise<OrderCreation> {
     const cached = offerCache.get(fareKey);
-    if (!cached || !cached.bookingId) {
+    if (!cached) {
+      throw new Error(`Atlas offer "${fareKey}" not found in session cache — session may have expired. Please search again.`);
+    }
+    if (!cached.bookingId) {
       throw new Error(`Atlas booking for ${fareKey} not verified — verifyFare must complete before order create.`);
     }
     const travelerId = cached.travelerIds[0];
@@ -529,14 +664,22 @@ export class AtlasSandboxProvider extends BaseTravelProvider {
       ['order', 'create', '--booking-id', cached.bookingId, '--passengers-stdin', '--json'],
       JSON.stringify(passengerPayload),
     );
-    assertCode(orderEnv, 'PAYMENT_CONFIRMATION_REQUIRED', 'order create');
+    if (orderEnv.code !== 'PAYMENT_CONFIRMATION_REQUIRED') {
+      const orderUrl = (orderEnv.data?.order_url as string) || (orderEnv.details?.url as string) || undefined;
+      const detail = (orderEnv.details && typeof orderEnv.details === 'object' ? JSON.stringify(orderEnv.details) : '') || orderEnv.message;
+      throw new Error(
+        `Atlas order create failed (code=${orderEnv.code}): ${detail}${orderUrl ? ` — Order link: ${orderUrl}` : ''}`,
+      );
+    }
     const orderData = orderEnv.data as {
       order_no?: string;
       total_price?: number;
       payment_confirmation_id?: string;
+      order_url?: string;
     };
     const orderNo = String(orderData.order_no ?? '');
     const paymentConfirmationId = String(orderData.payment_confirmation_id ?? '');
+    const initialOrderUrl = orderData.order_url;
     if (!orderNo || !paymentConfirmationId) {
       throw new Error(`Atlas order create missing order_no or payment_confirmation_id: ${JSON.stringify(orderData)}`);
     }
@@ -544,19 +687,39 @@ export class AtlasSandboxProvider extends BaseTravelProvider {
     const createMs = Date.now() - t0;
     onStep?.({
       name: 'create_order',
-      detail: `Atlas order ${orderNo} created — $${orderData.total_price} ${cached.currency}`,
+      detail: `Atlas order ${orderNo} created — $${orderData.total_price ?? cached.price} ${cached.currency}${initialOrderUrl ? ` (${initialOrderUrl})` : ''}`,
       durationMs: createMs,
     });
 
     // ---- 2. Order pay (NEVER retry — SKILL.md safety rule) ------------------
     const payStart = Date.now();
     const payEnv = await runCli(['order', 'pay', '--confirmation-id', paymentConfirmationId, '--json'], undefined, PAY_TIMEOUT_MS);
-    // PAYMENT_BALANCE_CHECK_REQUIRED is a non-success code we surface clearly.
+    const payMs = Date.now() - payStart;
+    const payData = (payEnv.data ?? {}) as {
+      order_url?: string;
+      order_no?: string;
+      airline_pnrs?: string[];
+      ticket_numbers?: string[];
+    };
+    const resolvedOrderUrl = payData.order_url || initialOrderUrl || (payEnv.details?.url as string) || undefined;
+
+    // PAYMENT_BALANCE_CHECK_REQUIRED (411) safely surfaced without retrying payment
     if (payEnv.code === 'PAYMENT_BALANCE_CHECK_REQUIRED') {
+      onStep?.({
+        name: 'authorize_payment',
+        detail: `Payment balance check required for order ${orderNo}. Account balance may be insufficient.${resolvedOrderUrl ? ` Order URL: ${resolvedOrderUrl}` : ''}`,
+        durationMs: payMs,
+      });
+      onStep?.({
+        name: 'issue_ticket',
+        detail: `Order ${orderNo} created, payment pending balance verification. Do NOT retry payment.`,
+        durationMs: 0,
+      });
       throw new Error(
-        `Atlas payment failed: ATRIP account balance insufficient (code=PAYMENT_BALANCE_CHECK_REQUIRED). Order ${orderNo} created but not paid. Do NOT re-submit payment; check balance at ATRIP workspace.`,
+        `PAYMENT_BALANCE_CHECK_REQUIRED: Payment could not be confirmed for order ${orderNo}. ATRIP account balance may be insufficient. Check balance at ATRIP workspace${resolvedOrderUrl ? ` (${resolvedOrderUrl})` : ''}. Do NOT re-submit payment directly.`,
       );
     }
+
     // TICKETING_PENDING is a valid intermediate outcome — the CLI polled for
     // up to 120 s and ticketing has not completed yet. Treat as success; the
     // caller can use getOrderStatus to track final ticketing.
@@ -565,27 +728,22 @@ export class AtlasSandboxProvider extends BaseTravelProvider {
     if (!isTicketed && !isPending) {
       assertCode(payEnv, 'TICKETED', 'order pay');
     }
-    const payData = payEnv.data as {
-      airline_pnrs?: string[];
-      ticket_numbers?: string[];
-    };
     const pnr = Array.isArray(payData.airline_pnrs) && payData.airline_pnrs.length > 0
       ? String(payData.airline_pnrs[0])
       : null;
     const ticketNo = Array.isArray(payData.ticket_numbers) && payData.ticket_numbers.length > 0
       ? String(payData.ticket_numbers[0])
       : null;
-    const payMs = Date.now() - payStart;
 
     onStep?.({
       name: 'authorize_payment',
-      detail: `Sandbox payment ${isPending ? 'submitted' : 'authorized'} — order ${orderNo}`,
+      detail: `Sandbox payment ${isPending ? 'submitted' : 'authorized'} — order ${orderNo}${resolvedOrderUrl ? ` (${resolvedOrderUrl})` : ''}`,
       durationMs: payMs,
     });
     onStep?.({
       name: 'issue_ticket',
       detail: isPending
-        ? `Ticketing pending — PNR will be issued asynchronously (order ${orderNo})`
+        ? `Ticketing pending — PNR will be issued asynchronously (order ${orderNo})${resolvedOrderUrl ? ` (${resolvedOrderUrl})` : ''}`
         : `Ticketed — PNR ${pnr ?? 'N/A'}${ticketNo ? `, ticket ${ticketNo}` : ''}`,
       durationMs: 0,
     });

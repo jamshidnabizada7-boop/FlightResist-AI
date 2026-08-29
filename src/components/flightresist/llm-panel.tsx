@@ -41,7 +41,7 @@ export function LlmPanel({ explanation, state }: Props) {
               }`}
             >
               <Sparkles className="h-3 w-3" />
-              {explanation.source === 'LLM' ? 'LLM · Z.AI SDK' : 'TEMPLATE FALLBACK'}
+              {explanation.source === 'LLM' ? 'Qwen 2.5 · Alibaba Cloud' : 'TEMPLATE REASONER'}
             </span>
             <span className="font-mono text-[10px] tabular-nums text-zinc-500">{explanation.latencyMs}ms</span>
           </div>

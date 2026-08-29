@@ -16,8 +16,10 @@
  *
  * Note: the session ID is an isolation primitive, NOT authentication.
  *
- * Authentication guard: protected paths require a valid next-auth session
- * token cookie. Public paths (login, register, auth API, health) are exempt.
+ * Authentication guard: protected UI paths require a valid next-auth session
+ * token cookie. Public paths (login, register, verify-email) and API routes
+ * (/api/*) are exempt from HTML login redirects so API clients, test suites,
+ * and MCP tools can interact directly with JSON endpoints.
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
@@ -30,11 +32,10 @@ const PUBLIC_PATHS = [
   '/login',
   '/register',
   '/verify-email',
-  '/api/health',
 ];
 
 const PUBLIC_PATH_PATTERNS = [
-  /^\/api\/auth(?:\/|$)/,
+  /^\/api(?:\/|$)/,
 ];
 
 function isPublicPath(pathname: string): boolean {

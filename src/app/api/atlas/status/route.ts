@@ -25,6 +25,9 @@ export async function GET() {
       available: probe.available,
       reason: probe.detail,
       authenticated: probe.authenticated,
+      ticketingAvailable: probe.ticketingAvailable,
+      ticketingBlocker: probe.ticketingBlocker,
+      ticketingActivationUrl: probe.ticketingActivationUrl,
     });
   } catch (err) {
     // Never throw from a status endpoint: `available: false` is the

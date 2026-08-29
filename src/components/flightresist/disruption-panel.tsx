@@ -347,51 +347,59 @@ export function DisruptionPanel({ state, riskScore, disruption, recovered, onTri
                   <Slider
                     value={[delayMinutes]}
                     min={15}
-                    max={180}
-                    step={5}
+                    max={1440}
+                    step={15}
                     onValueChange={(v) => setDelayMinutes(v[0] ?? 45)}
                     aria-label="Delay duration in minutes"
                     className="mt-2.5 [&_[data-slot=slider-range]]:bg-gradient-to-r [&_[data-slot=slider-range]]:from-amber-500 [&_[data-slot=slider-range]]:to-orange-500 [&_[data-slot=slider-thumb]]:border-orange-400 [&_[data-slot=slider-thumb]]:ring-orange-400/40"
                   />
                   <div className="mt-1 flex justify-between font-mono text-[11px] text-zinc-400">
                     <span>15m</span>
-                    <span>90m</span>
                     <span>180m</span>
+                    <span>1440m (24h)</span>
                   </div>
                   <p className="mt-1.5 text-center font-mono text-[10px] text-zinc-500">
-                    new NRT arrival ≈ <span className="font-bold text-orange-300">{newArrClock} JST</span> · risk computed by the engine
+                    new arrival ≈ <span className="font-bold text-orange-300">{newArrClock}</span> · risk computed by the engine
                   </p>
                 </div>
               </motion.div>
             )}
 
-            <Button
-              onClick={() => onTrigger(scenario, scenario === 'delay' ? delayMinutes : undefined)}
-              disabled={triggerBusy}
-              className="group relative h-12 w-full max-w-xs overflow-hidden rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 text-sm font-bold text-neutral-950 shadow-lg shadow-amber-500/25 transition-all hover:shadow-lg hover:shadow-amber-500/40 hover:brightness-105 active:scale-[0.98] focus-visible:ring-amber-300/70 disabled:opacity-60"
-            >
-              <Zap className={`mr-2 h-4 w-4 ${triggerBusy ? 'animate-pulse' : 'transition-transform group-hover:scale-110'}`} />
-              {triggerBusy
-                ? t('disruption.simulating')
-                : `${t('disruption.trigger')} — ${
-                    selected.id === 'delay' ? t('disruption.scenario.delay') : t('disruption.scenario.typhoon')
-                  }`}
-            </Button>
-            <p className="text-center font-mono text-[10px] leading-relaxed text-zinc-400">
-              {scenario === 'cancellation' ? (
-                <>
-                  Typhoon Trami cancels SQ856 at 05:30 SIN
-                  <br />
-                  webhook → impact graph → 42 candidates → 3 finalists → 1-tap approval
-                </>
-              ) : (
-                <>
-                  Late inbound aircraft delays CX520 +45m
-                  <br />
-                  same engine, different graph shape — buffers compress, mission holds
-                </>
-              )}
-            </p>
+            <div className="w-full max-w-sm space-y-3">
+              <Button
+                onClick={() => onTrigger(scenario, scenario === 'delay' ? delayMinutes : undefined)}
+                disabled={triggerBusy}
+                className="group relative h-12 w-full overflow-hidden rounded-xl bg-gradient-to-r from-amber-500 via-amber-400 to-orange-500 text-xs sm:text-sm font-extrabold uppercase tracking-wide text-zinc-950 shadow-lg shadow-amber-500/20 transition-all hover:shadow-amber-500/35 hover:brightness-105 active:scale-[0.98] focus-visible:ring-amber-300/70 disabled:opacity-60"
+              >
+                <div className="absolute inset-0 bg-white/15 opacity-0 transition-opacity group-hover:opacity-100" />
+                <Zap className={`mr-2 h-4 w-4 shrink-0 fill-current ${triggerBusy ? 'animate-pulse' : 'transition-transform group-hover:scale-110'}`} />
+                <span className="truncate">
+                  {triggerBusy
+                    ? t('disruption.simulating')
+                    : `${t('disruption.trigger')} — ${
+                        selected.id === 'delay' ? t('disruption.scenario.delay') : t('disruption.scenario.typhoon')
+                      }`}
+                </span>
+              </Button>
+
+              <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/60 p-3 backdrop-blur-sm text-center">
+                <div className="flex items-center justify-center gap-1.5 font-mono text-[10.5px] font-semibold text-amber-400/90">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  {scenario === 'cancellation' ? 'Typhoon Trami Scenario · SQ856' : `Feeder Delay Scenario · +${delayMinutes}m`}
+                </div>
+                <p className="mt-1 font-mono text-[10px] leading-relaxed text-zinc-400">
+                  {scenario === 'cancellation' ? (
+                    <>
+                      Sentinel webhook → Impact Graph → Atlas search → 42 candidates → 1-tap booking
+                    </>
+                  ) : (
+                    <>
+                      Late inbound flight → MCT buffer evaluation → mission risk recalculation
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
           </>
         ) : (
           <>

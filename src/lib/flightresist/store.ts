@@ -1,5 +1,5 @@
 /**
- * FlightResist AI 2.0 — Session Store (multi-session)
+ * FlightResist AI 2.0 — Session Store (multi-session & dynamic itinerary)
  *
  * In-memory live truth on globalThis (survives HMR) — now a Map of concurrent
  * sessions keyed by cookie-based session ID — plus write-through Prisma
@@ -26,6 +26,10 @@ import type {
   AgentEventLevel,
   DisruptionEvent,
   ExecutionResult,
+  Itinerary,
+  PassengerProfile,
+  MissionContext,
+  TripConstraints,
   ProviderInfo,
   RecoveryAnalysis,
   TripState,
@@ -36,8 +40,9 @@ export const ENGINE_VERSION = '2.0.0-deterministic-core';
 
 type EventPhase = AgentEvent['phase'];
 
-interface LiveSession {
+export interface LiveSession {
   state: TripState;
+  itinerary: Itinerary;
   riskScore: number;
   disruption: DisruptionEvent | null;
   analysis: RecoveryAnalysis | null;
@@ -58,9 +63,14 @@ const globalForStore = globalThis as unknown as {
   __flightresistCleanupTimer?: unknown;
 };
 
+function cloneItinerary(itinerary: Itinerary): Itinerary {
+  return JSON.parse(JSON.stringify(itinerary)) as Itinerary;
+}
+
 function freshSession(): LiveSession {
   return {
     state: 'NORMAL',
+    itinerary: cloneItinerary(ITINERARY),
     riskScore: 0,
     disruption: null,
     analysis: null,
@@ -155,10 +165,97 @@ if (!globalForStore.__flightresistCleanupTimer) {
 }
 
 // ---------------------------------------------------------------------------
+// Dynamic Itinerary & Profile Mutators
+// ---------------------------------------------------------------------------
+
+export async function setSessionItinerary(
+  itinerary: Itinerary,
+  providerMode?: string,
+  sessionId?: string
+): Promise<void> {
+  const id = resolveSessionId(sessionId);
+  const s = getSession(id);
+  s.itinerary = cloneItinerary(itinerary);
+  s.state = 'NORMAL';
+  s.riskScore = 0;
+  s.disruption = null;
+  s.analysis = null;
+  s.execution = null;
+  s.events = [];
+  s.seq = 0;
+  s.analysisRunning = false;
+  s.executionLock = false;
+
+  getBus().publish(id, 'reset', { atIso: new Date().toISOString() });
+  getBus().publish(id, 'state', { from: s.state, to: 'NORMAL', atIso: new Date().toISOString() });
+  getBus().publish(id, 'snapshot', { state: 'NORMAL', riskScore: 0 });
+
+  if (dbAvailable()) {
+    try {
+      await db.agentEvent.deleteMany({ where: { sessionId: persistenceKey(id) } });
+    } catch {
+      /* best-effort */
+    }
+  }
+  await persistSnapshot(providerMode || 'DEMO', id);
+}
+
+export function updateSessionConstraints(
+  constraints: Partial<TripConstraints>,
+  providerMode?: string,
+  sessionId?: string
+): Itinerary {
+  const id = resolveSessionId(sessionId);
+  const s = getSession(id);
+  s.itinerary.constraints = {
+    ...s.itinerary.constraints,
+    ...constraints,
+  };
+  void persistSnapshot(providerMode || 'DEMO', id);
+  getBus().publish(id, 'snapshot', { state: s.state, riskScore: s.riskScore });
+  return s.itinerary;
+}
+
+export function updateSessionPassenger(
+  passenger: Partial<PassengerProfile>,
+  providerMode?: string,
+  sessionId?: string
+): Itinerary {
+  const id = resolveSessionId(sessionId);
+  const s = getSession(id);
+  s.itinerary.passenger = {
+    ...s.itinerary.passenger,
+    ...passenger,
+  };
+  void persistSnapshot(providerMode || 'DEMO', id);
+  getBus().publish(id, 'snapshot', { state: s.state, riskScore: s.riskScore });
+  return s.itinerary;
+}
+
+export function updateSessionMission(
+  mission: Partial<MissionContext>,
+  providerMode?: string,
+  sessionId?: string
+): Itinerary {
+  const id = resolveSessionId(sessionId);
+  const s = getSession(id);
+  s.itinerary.mission = {
+    ...s.itinerary.mission,
+    ...mission,
+  };
+  if (mission.title) {
+    s.itinerary.tripPurpose = mission.title;
+  }
+  void persistSnapshot(providerMode || 'DEMO', id);
+  getBus().publish(id, 'snapshot', { state: s.state, riskScore: s.riskScore });
+  return s.itinerary;
+}
+
+// ---------------------------------------------------------------------------
 // Persistence
 // ---------------------------------------------------------------------------
 
-async function persistSnapshot(providerMode: string, sessionId?: string): Promise<void> {
+export async function persistSnapshot(providerMode: string, sessionId?: string): Promise<void> {
   if (!dbAvailable()) return; // Skip DB writes on Vercel/serverless
   const id = resolveSessionId(sessionId);
   const s = getSession(id);
@@ -171,6 +268,7 @@ async function persistSnapshot(providerMode: string, sessionId?: string): Promis
         state: s.state,
         providerMode,
         riskScore: s.riskScore,
+        itinerary: JSON.stringify(s.itinerary),
         disruption: s.disruption ? JSON.stringify(s.disruption) : null,
         analysis: s.analysis ? JSON.stringify(s.analysis) : null,
         execution: s.execution ? JSON.stringify(s.execution) : null,
@@ -181,6 +279,7 @@ async function persistSnapshot(providerMode: string, sessionId?: string): Promis
         state: s.state,
         providerMode,
         riskScore: s.riskScore,
+        itinerary: JSON.stringify(s.itinerary),
         disruption: s.disruption ? JSON.stringify(s.disruption) : null,
         analysis: s.analysis ? JSON.stringify(s.analysis) : null,
         execution: s.execution ? JSON.stringify(s.execution) : null,
@@ -207,6 +306,7 @@ export async function hydrateFromDb(providerMode: string, sessionId?: string): P
   const s = getSession(id);
   if (s.initialized) return;
   s.initialized = true;
+
   // Hydration is strictly a cold-start restore for PRISTINE sessions. If the
   // in-memory session already carries live activity (in-flight pipeline,
   // recorded events, non-NORMAL state), in-memory truth wins: the DB
@@ -224,42 +324,52 @@ export async function hydrateFromDb(providerMode: string, sessionId?: string): P
   if (!pristine) return;
   try {
     const row = await db.tripSession.findUnique({ where: { id: key } });
-    if (row && row.state !== 'NORMAL') {
-      const analysis = row.analysis ? (JSON.parse(row.analysis) as RecoveryAnalysis) : null;
-      const execution = row.execution ? (JSON.parse(row.execution) as ExecutionResult) : null;
-      let state = row.state as TripState;
-      // Recover stuck transient states after a cold restart:
-      //  - analysis never completed → back to NORMAL (disruption can be retriggered)
-      //  - execution interrupted mid-flight → re-arm the approval gate
-      if ((state === 'DISRUPTION_DETECTED' || state === 'ANALYZING') && !analysis) {
-        state = 'NORMAL';
-      } else if (state === 'EXECUTING' && analysis) {
-        state = 'AWAITING_APPROVAL';
-      } else if (state === 'EXECUTING') {
-        state = 'NORMAL';
+    if (row) {
+      if (row.itinerary) {
+        try {
+          s.itinerary = JSON.parse(row.itinerary) as Itinerary;
+        } catch {
+          s.itinerary = cloneItinerary(ITINERARY);
+        }
       }
-      s.state = state;
-      s.riskScore = state === 'NORMAL' ? 0 : row.riskScore;
-      s.disruption = state === 'NORMAL' ? null : row.disruption ? (JSON.parse(row.disruption) as DisruptionEvent) : null;
-      s.analysis = analysis;
-      s.execution = execution;
-      s.executionCount = row.disruptionSeq;
-      const events = await db.agentEvent.findMany({
-        where: { sessionId: key },
-        orderBy: { seq: 'asc' },
-      });
-      s.events = events.map((e) => ({
-        seq: e.seq,
-        phase: e.phase as EventPhase,
-        step: e.step,
-        title: e.title,
-        details: e.details,
-        level: e.level as AgentEventLevel,
-        agent: (e.agent as TraceActor | null) ?? undefined,
-        timestamp: e.createdAt.toISOString(),
-        durationMs: e.durationMs,
-      }));
-      s.seq = events.length;
+
+      if (row.state !== 'NORMAL') {
+        const analysis = row.analysis ? (JSON.parse(row.analysis) as RecoveryAnalysis) : null;
+        const execution = row.execution ? (JSON.parse(row.execution) as ExecutionResult) : null;
+        let state = row.state as TripState;
+        // Recover stuck transient states after a cold restart:
+        //  - analysis never completed → back to NORMAL (disruption can be retriggered)
+        //  - execution interrupted mid-flight → re-arm the approval gate
+        if ((state === 'DISRUPTION_DETECTED' || state === 'ANALYZING') && !analysis) {
+          state = 'NORMAL';
+        } else if (state === 'EXECUTING' && analysis) {
+          state = 'AWAITING_APPROVAL';
+        } else if (state === 'EXECUTING') {
+          state = 'NORMAL';
+        }
+        s.state = state;
+        s.riskScore = state === 'NORMAL' ? 0 : row.riskScore;
+        s.disruption = state === 'NORMAL' ? null : row.disruption ? (JSON.parse(row.disruption) as DisruptionEvent) : null;
+        s.analysis = analysis;
+        s.execution = execution;
+        s.executionCount = row.disruptionSeq;
+        const events = await db.agentEvent.findMany({
+          where: { sessionId: key },
+          orderBy: { seq: 'asc' },
+        });
+        s.events = events.map((e) => ({
+          seq: e.seq,
+          phase: e.phase as EventPhase,
+          step: e.step,
+          title: e.title,
+          details: e.details,
+          level: e.level as AgentEventLevel,
+          agent: (e.agent as TraceActor | null) ?? undefined,
+          timestamp: e.createdAt.toISOString(),
+          durationMs: e.durationMs,
+        }));
+        s.seq = events.length;
+      }
     }
     // Phase 7: await persist — eliminates race with forceReset on cold start.
     await persistSnapshot(providerMode, id);
@@ -335,7 +445,7 @@ export function setState(to: TripState, providerMode: string, sessionId?: string
 /** Operator-level override (session reset) — bypasses transition table on purpose.
  *  Phase 7: now async — awaits DB operations so the caller can be certain
  *  the reset is durable before issuing the next request. */
-export async function forceReset(providerMode: string, sessionId?: string): Promise<void> {
+export async function forceReset(providerMode?: string, sessionId?: string): Promise<void> {
   const id = resolveSessionId(sessionId);
   const s = getSession(id);
   s.state = 'NORMAL';
@@ -356,7 +466,7 @@ export async function forceReset(providerMode: string, sessionId?: string): Prom
       await db.agentEvent.deleteMany({ where: { sessionId: persistenceKey(id) } });
     } catch { /* best-effort */ }
   }
-  await persistSnapshot(providerMode, id);
+  await persistSnapshot(providerMode || 'DEMO', id);
 }
 
 export async function getLedger(sessionId?: string): Promise<{ id: string; proposalId: string; status: string; reference: string | null; executionTimeMs: number; createdAtIso: string }[]> {
@@ -388,9 +498,9 @@ export async function getLedger(sessionId?: string): Promise<{ id: string; propo
 export function buildSnapshot(providerInfo: ProviderInfo, sessionId?: string) {
   const s = getSession(sessionId);
   return {
-    tripId: TRIP_ID,
+    tripId: s.itinerary.tripId || TRIP_ID,
     state: s.state,
-    itinerary: ITINERARY,
+    itinerary: s.itinerary,
     riskScore: s.riskScore,
     disruption: s.disruption,
     analysis: s.analysis,

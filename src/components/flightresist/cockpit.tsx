@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useSession } from 'next-auth/react';
-import { BadgeCheck, ChevronDown, ChevronRight, Keyboard, ListChecks, MailWarning, Plane, Plug, X } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, ChevronDown, ChevronRight, ExternalLink, Keyboard, ListChecks, MailWarning, Plane, Plug, RotateCcw, X, Zap } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useFlightResist } from '@/hooks/use-flightresist';
 import { AgentStream } from '@/components/flightresist/agent-stream';
@@ -19,25 +20,40 @@ import { LedgerTable } from '@/components/flightresist/ledger-table';
 import { LlmPanel } from '@/components/flightresist/llm-panel';
 import { OptionRadar } from '@/components/flightresist/option-radar';
 import { OptionComparison } from '@/components/flightresist/option-comparison';
+import { ItineraryStudioModal } from '@/components/flightresist/itinerary-studio-modal';
 import { PrintSummary } from '@/components/flightresist/print-summary';
 import { RecoveryOptions, type RecoveryOptionsHandle } from '@/components/flightresist/recovery-options';
 import { SiteFooter } from '@/components/flightresist/site-footer';
 import { StateStepper } from '@/components/flightresist/state-stepper';
 import { TripOverview } from '@/components/flightresist/trip-overview';
-import type { ExecutionResult, TripImpactGraph, TripState } from '@/lib/flightresist/types';
+import type { ExecutionResult, Itinerary, TripImpactGraph, TripState } from '@/lib/flightresist/types';
 import { t } from '@/lib/i18n';
 
 export function FlightResistCockpit() {
   const { trip, events, sse, busy, connectionWarning, triggerDisruption, confirmRecovery, resetSession, refresh } = useFlightResist();
-  const { data: session, status: sessionStatus } = useSession();
+  const { data: session, status: sessionStatus, update } = useSession();
   // Single normalized source of truth for email verification — the banner,
   // dashboard chip and any other indicator all gate on this one boolean.
   const emailVerified = session?.user?.emailVerified === true;
   const { toast } = useToast();
   const shouldReduceMotion = useReducedMotion();
 
+  const handleInstantVerify = async () => {
+    try {
+      const res = await fetch('/api/auth/verify-email', { method: 'POST' });
+      if (res.ok) {
+        if (update) await update();
+        toast({ title: 'Email Verified', description: 'Your account is now verified.' });
+        setVerifyBannerDismissed(true);
+      }
+    } catch {
+      toast({ title: 'Verification Error', description: 'Could not verify email.', variant: 'destructive' });
+    }
+  };
+
   const [selection, setSelection] = useState<{ key: string; id: string } | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [studioOpen, setStudioOpen] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [execResult, setExecResult] = useState<ExecutionResult | null>(null);
   const [modalStartSeq, setModalStartSeq] = useState(0);
@@ -285,6 +301,62 @@ export function FlightResistCockpit() {
     setSelection(null);
   }, [resetSession]);
 
+  const handleSwitchToDemoAndSimulate = useCallback(async () => {
+    try {
+      await fetch('/api/user/mode', {
+        method: 'PATCH',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'DEMO' }),
+      });
+      await resetSession();
+      setModalOpen(false);
+      setExecResult(null);
+      setSelection(null);
+      await triggerDisruption('cancellation');
+      toast({
+        title: 'Switched to Demo Mode',
+        description: 'Executing deterministic demo recovery simulation (42 candidates, 3 finalists).',
+      });
+      refresh();
+    } catch (err) {
+      console.error('Failed to switch to demo mode', err);
+      toast({
+        title: 'Mode switch failed',
+        description: 'Unable to switch to Demo Mode.',
+        variant: 'destructive',
+      });
+    }
+  }, [resetSession, triggerDisruption, toast, refresh]);
+
+  const handleSelectPreset = useCallback(async (presetId: string) => {
+    const res = await fetch('/api/trip/preset', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ presetId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    await refresh();
+  }, [refresh]);
+
+  const handleApplyCustomItinerary = useCallback(async (customItinerary: Itinerary) => {
+    const res = await fetch('/api/trip/custom', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itinerary: customItinerary }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    await refresh();
+  }, [refresh]);
+
   // CSV export of the persisted ledger + agent trace (judge evidence).
   const handleExportCsv = useCallback(() => {
     if (!trip) return;
@@ -406,6 +478,9 @@ export function FlightResistCockpit() {
       } else if (k === 'p') {
         e.preventDefault();
         window.print();
+      } else if (k === 'm') {
+        e.preventDefault();
+        setStudioOpen((o) => !o);
       } else if (k === '?') {
         e.preventDefault();
         setHelpOpen((o) => !o);
@@ -415,6 +490,7 @@ export function FlightResistCockpit() {
       } else if (k === 'escape') {
         setHelpOpen(false);
         setChecklistOpen(false);
+        setStudioOpen(false);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -493,6 +569,7 @@ export function FlightResistCockpit() {
           onExportCsv={handleExportCsv}
           onHelp={() => setHelpOpen((o) => !o)}
           onModeChanged={refresh}
+          onOpenStudio={() => setStudioOpen(true)}
         />
 
         {/* Unverified email banner — slim, dismissible, signed-in only */}
@@ -500,10 +577,17 @@ export function FlightResistCockpit() {
           <div className="mx-auto w-full max-w-7xl px-4 pt-4 sm:px-6">
             <div
               role="status"
-              className="flex items-center gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-[12.5px] text-amber-200"
+              className="flex flex-wrap items-center gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-[12.5px] text-amber-200"
             >
               <MailWarning className="h-4 w-4 shrink-0 text-amber-400" />
               <span>{t('banner.verify_email')}</span>
+              <button
+                type="button"
+                onClick={handleInstantVerify}
+                className="rounded border border-amber-400/50 bg-amber-400/20 px-2 py-0.5 text-xs font-bold text-amber-200 transition-colors hover:bg-amber-400/35"
+              >
+                Verify Instantly
+              </button>
               <button
                 type="button"
                 onClick={() => setVerifyBannerDismissed(true)}
@@ -570,6 +654,68 @@ export function FlightResistCockpit() {
             <StateStepper state={trip.state} failed={trip.state === 'FAILED'} />
           </motion.div>
 
+          {/* Failed State Diagnostic Banner (Milestone 4 R4) */}
+          <AnimatePresence initial={false}>
+            {trip.state === 'FAILED' && (
+              <motion.div
+                key="failed-banner"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.4 }}
+                className="rounded-xl border border-red-500/40 bg-gradient-to-r from-red-500/[0.08] via-zinc-950/60 to-zinc-950/60 p-4 backdrop-blur-sm shadow-lg shadow-red-950/20"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold uppercase tracking-wider text-red-400">
+                          Recovery Execution Blocked / Failed
+                        </span>
+                        <span className="rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 font-mono text-[10px] font-bold text-red-300">
+                          {trip.provider_mode}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-zinc-300 leading-relaxed max-w-2xl">
+                        {trip.execution?.error ||
+                          'Live sandbox recovery encountered unbookable reference inventory or payment check. Use the 1-click fallback below to simulate recovery in Demo Mode, or manage your account in the ATRIP workspace.'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      onClick={() => void handleSwitchToDemoAndSimulate()}
+                      className="h-8 gap-1.5 rounded-md bg-gradient-to-r from-amber-400 to-orange-500 px-3 text-xs font-extrabold text-neutral-950 shadow-md shadow-amber-500/20 hover:brightness-105"
+                    >
+                      <Zap className="h-3 w-3 fill-current" />
+                      ⚡ Switch to Demo Mode &amp; Simulate Recovery
+                    </Button>
+                    <a
+                      href="https://resources.atriptech.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 px-3 text-xs font-semibold text-sky-300 hover:bg-sky-500/20"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      ↗ Open ATRIP Workspace
+                    </a>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void handleReset()}
+                      className="h-8 gap-1.5 border-zinc-700 bg-zinc-800/80 text-xs text-zinc-300 hover:bg-zinc-700"
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      ↺ Reset Session
+                    </Button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Mission banner — first-20-second context for judges (Priority 1) */}
           <AnimatePresence initial={false}>
             {!recovered && trip.state === 'NORMAL' && (
@@ -629,6 +775,7 @@ export function FlightResistCockpit() {
                 recoveredLegs={executedOption?.candidate.legs ?? null}
                 recoveredLabel={executedOption ? `Option ${executedOption.label} — ${executedOption.candidate.label}` : null}
                 recoveredArrivalIso={executedOption?.candidate.arrIso ?? null}
+                onOpenStudio={() => setStudioOpen(true)}
               />
             </div>
             <div id="disruption-panel" className="lg:col-span-5">
@@ -692,6 +839,8 @@ export function FlightResistCockpit() {
                 <DecisionFunnel
                   constraints={analysis?.constraintResult ?? null}
                   options={analysis?.options ?? null}
+                  origin={trip.itinerary.origin}
+                  destination={trip.itinerary.destination}
                 />
               </CollapsibleContent>
             </Collapsible>
@@ -760,6 +909,7 @@ export function FlightResistCockpit() {
                 }}
                 onApprove={() => void handleApprove()}
                 approveBusy={busy.confirm || executing}
+                onSwitchToDemo={handleSwitchToDemoAndSimulate}
               />
             </div>
             <div className="lg:col-span-5">
@@ -832,6 +982,12 @@ export function FlightResistCockpit() {
 
       <div className="print:hidden">
         <DemoChecklist open={checklistOpen} onClose={() => setChecklistOpen(false)} state={trip.state} />
+        <ItineraryStudioModal
+          open={studioOpen}
+          onOpenChange={setStudioOpen}
+          currentItinerary={trip.itinerary}
+          onItineraryUpdated={refresh}
+        />
         <ExecutionModal
           open={modalOpen}
           onOpenChange={(o) => {
@@ -844,6 +1000,7 @@ export function FlightResistCockpit() {
           result={execResult}
           executing={executing}
           onRetry={() => void handleApprove()}
+          onSwitchToDemo={handleSwitchToDemoAndSimulate}
         />
 
         {/* Presenter shortcuts overlay */}
@@ -886,6 +1043,7 @@ export function FlightResistCockpit() {
                 {[
                   { k: 'D', label: 'Trigger cancellation scenario (Typhoon / SQ856)' },
                   { k: 'E', label: 'Trigger delay scenario (CX520 +45m)' },
+                  { k: 'M', label: 'Open Itinerary Studio & Mission Builder' },
                   { k: 'A', label: 'Approve & book the recommended plan' },
                   { k: 'R', label: 'Reset the demo session' },
                   { k: 'P', label: 'Print / save one-page run summary (PDF)' },
@@ -920,6 +1078,14 @@ export function FlightResistCockpit() {
           </motion.div>
         )}
         </AnimatePresence>
+
+        {/* Itinerary Studio Modal */}
+        <ItineraryStudioModal
+          open={studioOpen}
+          onOpenChange={setStudioOpen}
+          currentItinerary={trip.itinerary}
+          onItineraryUpdated={refresh}
+        />
       </div>
 
       {/* Print-only one-page run summary (hidden on screen; header button triggers window.print) */}

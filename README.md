@@ -61,7 +61,7 @@ Disruption → SMS alert                     Disruption → Autonomous Sentinel
 
 **The deterministic engine is authoritative.** Hard constraints (arrival deadline, budget, MCT, baggage) and the multi-criteria score are computed by closed-form TypeScript — the LLM is *explanation-only*, prompt-locked from recomputing anything, with a deterministic template fallback.
 
-The explanation backend is selected by `LLM_PROVIDER`: **Alibaba Cloud Model Studio (Qwen, via the OpenAI-compatible DashScope endpoint)** when `DASHSCOPE_API_KEY` is set, otherwise the Z.AI SDK, and `template` to skip the LLM entirely. Any failure, timeout, or malformed response falls back to the deterministic template — **the pipeline never blocks on the LLM.** See [`.env.example`](./.env.example).
+The explanation backend is selected by `LLM_PROVIDER`: **Alibaba Cloud Model Studio (Qwen 2.5, via the OpenAI-compatible DashScope endpoint)** when `DASHSCOPE_API_KEY` is set, and `template` (deterministic template reasoner) for instant, offline-ready operation. Any failure, timeout, or malformed response falls back to the deterministic template — **the pipeline never blocks on the LLM.** See [`.env.example`](./.env.example).
 
 ```
 Trip State Engine → Disruption Webhook → Trip Impact Graph → Candidate Generation

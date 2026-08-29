@@ -26,11 +26,11 @@ export function SiteFooter({ engineVersion }: Props) {
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-center gap-1.5">
-          {['Next.js 16', 'Deterministic Core', 'Z.AI LLM (explanation-only)', 'SSE Agent Trace', 'Prisma Ledger'].map(
+          {['Next.js 16', 'Qwen 2.5 (Alibaba Cloud)', 'Atlas Flights GDS', 'Qoder MCP Server', 'Deterministic Core', 'Prisma Ledger'].map(
             (t) => (
               <span
                 key={t}
-                className="rounded border border-zinc-800 bg-zinc-900/60 px-1.5 py-0.5 font-mono text-[11px] text-zinc-500"
+                className="rounded border border-zinc-800 bg-zinc-900/60 px-1.5 py-0.5 font-mono text-[11px] text-zinc-400"
               >
                 {t}
               </span>

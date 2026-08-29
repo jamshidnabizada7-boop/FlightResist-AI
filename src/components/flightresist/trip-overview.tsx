@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { fmtLocalTime, fmtMinutes } from '@/lib/flightresist/format';
 import type { DisruptionEvent, FlightLeg, Itinerary } from '@/lib/flightresist/types';
 import { airportTz, timezoneFullName, toLocalTime } from '@/lib/flightresist/time-utils';
+import { GLOBAL_AIRPORTS } from '@/lib/flightresist/airports-data';
 
 interface Props {
   itinerary: Itinerary;
@@ -26,6 +27,8 @@ interface Props {
   recoveredLegs?: FlightLeg[] | null;
   recoveredLabel?: string | null;
   recoveredArrivalIso?: string | null;
+  /** Trigger callback to open the Itinerary Studio modal. */
+  onOpenStudio?: () => void;
 }
 
 function LegStatus({ leg, disruption }: { leg: Itinerary['legs'][number]; disruption: DisruptionEvent | null }) {
@@ -62,8 +65,38 @@ function TzLabel({ code }: { code: string }) {
   );
 }
 
-export function TripOverview({ itinerary, disruption, recoveredLegs, recoveredLabel, recoveredArrivalIso }: Props) {
+export function TripOverview({
+  itinerary,
+  disruption,
+  recoveredLegs,
+  recoveredLabel,
+  recoveredArrivalIso,
+  onOpenStudio,
+}: Props) {
   const c = itinerary.constraints;
+  const firstLeg = itinerary.legs[0];
+  const lastLeg = itinerary.legs[itinerary.legs.length - 1];
+
+  const originCity = GLOBAL_AIRPORTS[itinerary.origin]?.city || itinerary.origin;
+  const destCity = GLOBAL_AIRPORTS[itinerary.destination]?.city || itinerary.destination;
+  const transitHubs = itinerary.legs.slice(0, -1).map((l) => l.to);
+  const transitLabel = transitHubs.length > 0 ? `via ${transitHubs.join(', ')}` : 'nonstop';
+
+  const depTime = firstLeg ? fmtLocalTime(firstLeg.depIso) : { time: '08:00', nextDay: false };
+  const arrTime = lastLeg ? fmtLocalTime(lastLeg.arrIso) : { time: '19:45', nextDay: false };
+
+  // Calculate total elapsed journey duration
+  let durationLabel = `${itinerary.legs.length} legs`;
+  if (firstLeg && lastLeg) {
+    const totalMin = Math.round(
+      (new Date(lastLeg.arrIso).getTime() - new Date(firstLeg.depIso).getTime()) / 60000
+    );
+    if (totalMin > 0) {
+      durationLabel = `${Math.floor(totalMin / 60)}h ${totalMin % 60}m · ${itinerary.legs.length} ${
+        itinerary.legs.length === 1 ? 'leg' : 'legs'
+      }`;
+    }
+  }
 
   // Cancelled legs render struck-through once the disruption lands.
   const isCancelledLeg = (fn: string) => disruption?.flightNumber === fn && disruption?.event === 'CANCELLATION';
@@ -76,15 +109,26 @@ export function TripOverview({ itinerary, disruption, recoveredLegs, recoveredLa
           <span className="font-mono text-[10px] font-semibold tracking-widest text-zinc-400">01 ·</span>
           <h2 className="text-xs font-bold uppercase tracking-widest text-zinc-300">Active Itinerary</h2>
         </div>
-        <span className="font-mono text-[11px] text-zinc-500">{itinerary.tripId}</span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[11px] text-zinc-500">{itinerary.tripId}</span>
+          {onOpenStudio && (
+            <button
+              type="button"
+              onClick={onOpenStudio}
+              className="inline-flex items-center gap-1 rounded border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 font-mono text-[10px] font-semibold text-amber-300 transition-all hover:bg-amber-400/20 active:scale-95"
+            >
+              Itinerary Studio
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="p-4 sm:p-5">
         {/* Route header */}
         <div className="mb-5 flex items-center justify-center gap-3 sm:gap-6">
           <div className="text-center">
-            <div className="font-mono text-2xl font-bold tabular-nums text-zinc-100 sm:text-3xl">SIN</div>
-            <div className="text-[10px] uppercase tracking-widest text-zinc-500">Singapore</div>
+            <div className="font-mono text-2xl font-bold tabular-nums text-zinc-100 sm:text-3xl">{itinerary.origin}</div>
+            <div className="text-[10px] uppercase tracking-widest text-zinc-500">{originCity}</div>
           </div>
           <div className="relative flex-1 px-2">
             <div className="flex items-center gap-1.5">
@@ -98,17 +142,18 @@ export function TripOverview({ itinerary, disruption, recoveredLegs, recoveredLa
                 />
               </div>
               <span className="hidden rounded border border-zinc-700 bg-zinc-800/60 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400 sm:inline">
-                via HKG
+                {transitLabel}
               </span>
               <PlaneLanding className="h-4 w-4 shrink-0 text-zinc-400" />
             </div>
             <div className="mt-1 text-center font-mono text-[10px] text-zinc-500">
-              11h 45m · 2 legs · dep 08:00 <TzLabel code="SIN" /> → arr 19:45 <TzLabel code="NRT" />
+              {durationLabel} · dep {depTime.time} <TzLabel code={itinerary.origin} /> → arr {arrTime.time}
+              {arrTime.nextDay ? ' +1d' : ''} <TzLabel code={itinerary.destination} />
             </div>
           </div>
           <div className="text-center">
-            <div className="font-mono text-2xl font-bold tabular-nums text-zinc-100 sm:text-3xl">NRT</div>
-            <div className="text-[10px] uppercase tracking-widest text-zinc-500">Tokyo</div>
+            <div className="font-mono text-2xl font-bold tabular-nums text-zinc-100 sm:text-3xl">{itinerary.destination}</div>
+            <div className="text-[10px] uppercase tracking-widest text-zinc-500">{destCity}</div>
           </div>
         </div>
 
@@ -117,8 +162,15 @@ export function TripOverview({ itinerary, disruption, recoveredLegs, recoveredLa
           {itinerary.legs.map((leg, i) => {
             const dep = fmtLocalTime(leg.depIso);
             const arr = fmtLocalTime(leg.arrIso);
+            const nextLeg = itinerary.legs[i + 1];
+            let layoverMin = 0;
+            if (nextLeg) {
+              layoverMin = Math.round(
+                (new Date(nextLeg.depIso).getTime() - new Date(leg.arrIso).getTime()) / 60000
+              );
+            }
             return (
-              <div key={leg.flightNumber}>
+              <div key={`${leg.flightNumber}-${i}`}>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-zinc-800/70 bg-zinc-950/40 p-3">
                   <div className="min-w-[110px]">
                     <div className={`font-mono text-sm font-bold text-zinc-100 ${isCancelledLeg(leg.flightNumber) ? 'line-through decoration-red-400/70' : ''}`}>{leg.flightNumber}</div>
@@ -147,10 +199,12 @@ export function TripOverview({ itinerary, disruption, recoveredLegs, recoveredLa
                     <LegStatus leg={leg} disruption={disruption} />
                   </div>
                 </div>
-                {i === 0 && (
+                {nextLeg && (
                   <div className="flex items-center justify-center py-1">
                     <span className="rounded-full border border-zinc-800 bg-zinc-900 px-2.5 py-0.5 font-mono text-[10px] text-zinc-500">
-                      layover HKG · 2h 25m (≥ MCT 60m ✓)
+                      layover {leg.to} · {Math.floor(layoverMin / 60)}h {layoverMin % 60}m (
+                      {layoverMin >= c.mctMin ? `≥ MCT ${c.mctMin}m ✓` : `< MCT ${c.mctMin}m ✗`}
+                      )
                     </span>
                   </div>
                 )}
@@ -176,12 +230,12 @@ export function TripOverview({ itinerary, disruption, recoveredLegs, recoveredLa
               </div>
               {recoveredArrivalIso && (
                 <span className="font-mono text-[10px] text-zinc-400">
-                  arrives NRT{' '}
+                  arrives {itinerary.destination}{' '}
                   <span className="font-bold text-emerald-300">
                     {fmtLocalTime(recoveredArrivalIso).time}
                     {fmtLocalTime(recoveredArrivalIso).nextDay ? ' +1d' : ''}
                   </span>{' '}
-                  <TzLabel code="NRT" />{' '}
+                  <TzLabel code={itinerary.destination} />{' '}
                   <span className="text-zinc-500">({toLocalTime(recoveredArrivalIso)} your time)</span>
                 </span>
               )}
@@ -225,8 +279,15 @@ export function TripOverview({ itinerary, disruption, recoveredLegs, recoveredLa
             </div>
           </div>
           <div className="rounded-lg border border-zinc-800/70 bg-zinc-950/40 p-3">
-            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
-              <Briefcase className="h-3 w-3" /> Mission
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+                <Briefcase className="h-3 w-3" /> Mission
+              </div>
+              {itinerary.mission?.dealValue && (
+                <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.2 font-mono text-[9px] font-bold text-emerald-300">
+                  ${(itinerary.mission.dealValue / 1000000).toFixed(0)}M Deal Value
+                </span>
+              )}
             </div>
             <div className="mt-1 text-[12px] leading-snug text-zinc-300">{itinerary.tripPurpose}</div>
           </div>
@@ -256,7 +317,7 @@ export function TripOverview({ itinerary, disruption, recoveredLegs, recoveredLa
               </div>
               <div className="font-mono text-sm font-bold text-zinc-200">
                 {fmtLocalTime(c.hardArrivalLimitIso).time}
-                <span className="text-[10px] text-zinc-500"> +1d</span> <TzLabel code="NRT" />
+                <span className="text-[10px] text-zinc-500"> +1d</span> <TzLabel code={itinerary.destination} />
               </div>
               <div className="text-[10px] text-zinc-500">({toLocalTime(c.hardArrivalLimitIso)} your time)</div>
             </div>

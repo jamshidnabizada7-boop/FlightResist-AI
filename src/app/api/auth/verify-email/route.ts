@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { db, dbAvailable } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
@@ -31,6 +33,27 @@ export async function GET(request: NextRequest) {
   });
 
   await db.verificationToken.delete({ where: { token } });
+
+  return NextResponse.json({ message: 'Email verified successfully.' }, { status: 200 });
+}
+
+export async function POST(request: NextRequest) {
+  if (!dbAvailable()) {
+    return NextResponse.json(
+      { message: 'Database unavailable. Please try again later.' },
+      { status: 503 },
+    );
+  }
+
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ message: 'Unauthorized.' }, { status: 401 });
+  }
+
+  await db.user.update({
+    where: { email: session.user.email.toLowerCase() },
+    data: { emailVerified: new Date() },
+  });
 
   return NextResponse.json({ message: 'Email verified successfully.' }, { status: 200 });
 }

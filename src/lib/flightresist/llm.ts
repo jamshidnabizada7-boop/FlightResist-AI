@@ -7,19 +7,12 @@
  * modules. If the LLM call fails or times out, a deterministic template
  * explanation is produced — the pipeline never blocks on the LLM.
  *
- * Backends (selected by LLM_PROVIDER, default `auto`):
- *   QWEN     — Alibaba Cloud Model Studio (DashScope OpenAI-compatible endpoint).
- *              Active when DASHSCOPE_API_KEY is present. No SDK dependency: plain fetch.
- *   ZAI      — z-ai-web-dev-sdk (Alibaba-ecosystem LLM served through Z.AI).
- *   TEMPLATE — deterministic template only; the LLM is never called.
- *
- * `auto` prefers QWEN when a key is configured and otherwise falls back to ZAI,
- * so an environment with no new variables set behaves exactly as before.
- * Whichever backend is chosen, it remains explanation-only and the deterministic
- * template is always the failure path.
+ * Backends:
+ *   QWEN     — Alibaba Cloud Model Studio (Qwen 2.5 / DashScope OpenAI-compatible endpoint).
+ *              Active when DASHSCOPE_API_KEY is present. Zero external SDK dependency: native fetch.
+ *   TEMPLATE — deterministic template reasoner; instant and 100% offline-ready.
  */
 
-import ZAI from 'z-ai-web-dev-sdk';
 import type { Itinerary, RecoveryAnalysis, LlmExplanation, LlmFactPayload, ScoredOption } from './types';
 
 /** Strip or escape potential prompt-injection patterns from user-controlled fields. */
@@ -34,25 +27,19 @@ function sanitizeForPrompt(input: string): string {
 const LLM_TIMEOUT_MS = 9000;
 
 /** Alibaba Cloud Model Studio — OpenAI-compatible chat completions. */
-const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY;
+const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY || process.env.ALIBABA_CLOUD_API_KEY;
 const DASHSCOPE_BASE_URL =
   process.env.DASHSCOPE_BASE_URL ?? 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 const QWEN_MODEL = process.env.QWEN_MODEL ?? 'qwen-plus';
 
-type LlmBackend = 'QWEN' | 'ZAI' | 'TEMPLATE';
+type LlmBackend = 'QWEN' | 'TEMPLATE';
 
-/** Resolves which backend to call. Unset env → previous behaviour (ZAI). */
+/** Resolves which backend to call. */
 function selectBackend(): LlmBackend {
-  switch ((process.env.LLM_PROVIDER ?? 'auto').toLowerCase()) {
-    case 'qwen':
-      return 'QWEN';
-    case 'zai':
-      return 'ZAI';
-    case 'template':
-      return 'TEMPLATE';
-    default:
-      return DASHSCOPE_API_KEY ? 'QWEN' : 'ZAI';
-  }
+  const provider = (process.env.LLM_PROVIDER ?? 'auto').toLowerCase();
+  if (provider === 'template') return 'TEMPLATE';
+  if (provider === 'qwen' || DASHSCOPE_API_KEY) return 'QWEN';
+  return 'TEMPLATE';
 }
 
 function optionContext(o: ScoredOption): string {
@@ -184,22 +171,6 @@ async function callQwen(prompt: string): Promise<BackendResult> {
   };
 }
 
-/** z-ai-web-dev-sdk — the original backend, unchanged. */
-async function callZai(prompt: string): Promise<BackendResult> {
-  const zai = await ZAI.create();
-  const completion = await zai.chat.completions.create({
-    messages: [
-      { role: 'assistant', content: SYSTEM_PROMPT },
-      { role: 'user', content: prompt },
-    ],
-    thinking: { type: 'disabled' },
-  });
-  return {
-    text: completion.choices[0]?.message?.content ?? '',
-    model: 'z-ai-web-dev-sdk · Qwen-family chat completion',
-  };
-}
-
 /** Generates the plain-English trade-off explanation (LLM → template fallback).
  *  Phase 5: receives the deterministic fact payload to embed in the LLM prompt
  *  and to expose on the response as evidence. */
@@ -214,7 +185,7 @@ export async function generateExplanation(
     if (backend === 'TEMPLATE') throw new Error('LLM disabled by LLM_PROVIDER=template');
     const prompt = buildPrompt(analysis, itinerary, factPayload);
     const { text, model } = await Promise.race([
-      backend === 'QWEN' ? callQwen(prompt) : callZai(prompt),
+      callQwen(prompt),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('LLM timeout')), LLM_TIMEOUT_MS),
       ),
