@@ -7,6 +7,10 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
+      # Direct (non-pooled) Neon URL used by `prisma migrate deploy` for
+      # advisory locks (P1002 timeout through the PgBouncer pooler).
+      - key: DIRECT_DATABASE_URL
+        sync: false
       - key: NEXTAUTH_SECRET
         sync: false
       - key: NEXTAUTH_URL
