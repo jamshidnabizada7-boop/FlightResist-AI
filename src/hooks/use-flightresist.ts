@@ -41,6 +41,10 @@ export interface CurrentTrip {
   ledger: LedgerEntry[];
   events: AgentEvent[];
   engine_version: string;
+  /** Present when the user's LIVE preference could not be served for this
+   *  read and the snapshot was built with the demo provider instead. */
+  live_unavailable?: boolean;
+  live_unavailable_reason?: string;
 }
 
 export interface SseStatus {
@@ -96,7 +100,14 @@ export function useFlightResist() {
         }
         return prev;
       });
-      setConnectionWarning(null);
+      // Live-mode degradation is not a network failure: the trip loaded, but
+      // the user's LIVE preference could not be served. Say so instead of
+      // pretending everything is fine (or failing the read).
+      if (data.live_unavailable) {
+        setConnectionWarning(data.live_unavailable_reason ?? 'Live mode unavailable — showing demo data.');
+      } else {
+        setConnectionWarning(null);
+      }
     } catch (err) {
       console.error('[flightresist] refresh failed:', err);
       setConnectionWarning('Unable to load trip data — please check your connection.');

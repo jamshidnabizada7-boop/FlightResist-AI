@@ -23,7 +23,7 @@ import { logger } from '@/lib/logger';
 import { CircuitBreaker } from '../circuit-breaker';
 import { emitEvent } from '../store';
 import type { FlightCandidate, ProviderInfo, ProviderMode } from '../types';
-import { AtlasSandboxProvider, probeAtlas } from './atlas-sandbox';
+import { AtlasSandboxProvider, probeAtlas, type AtlasProbeResult } from './atlas-sandbox';
 import { BaseTravelProvider } from './base';
 import { DemoProvider } from './demo';
 import type {
@@ -202,8 +202,14 @@ export async function getActiveProvider(userMode?: string): Promise<ActiveProvid
     // Never silently fail over to demo data while the UI shows LIVE.
     const probe = await probeAtlas();
     if (!probe.available) {
+      // Name the real cause (CLI absent vs. secure-store missing) instead of
+      // always claiming the CLI is "not installed".
+      const cause =
+        probe.reason === 'SECURE_STORE_UNAVAILABLE'
+          ? 'the atlas-flight CLI cannot access its secure credential store on this deployment'
+          : 'the atlas-flight CLI is not installed';
       throw new Error(
-        'Live mode unavailable on this deployment — the atlas-flight CLI is not installed. Only Demo mode is supported here; use the self-hosted version for real flights.',
+        `Live mode unavailable on this deployment — ${cause}. Only Demo mode is supported here; use the self-hosted version for real flights. (${probe.detail})`,
       );
     }
     // Reading `isOpen` also performs the OPEN → HALF_OPEN transition once the
@@ -290,12 +296,13 @@ export async function getActiveProvider(userMode?: string): Promise<ActiveProvid
 }
 
 /**
- * Cheap Atlas CLI availability probe for GET /api/atlas/status — the frontend
+ * Full Atlas CLI availability probe for GET /api/atlas/status — the frontend
  * uses it to warn before a user switches to Live mode. Runs the same cached
  * runtime probe (60 s TTL) as provider selection, without the full provider /
- * circuit-breaker setup, so it is safe to call frequently.
+ * circuit-breaker setup, so it is safe to call frequently. Returns the whole
+ * probe result so the UI can explain WHY live mode is unavailable (CLI
+ * absent vs. secure store missing) and whether the CLI is authenticated.
  */
-export async function checkAtlasAvailability(): Promise<boolean> {
-  const probe = await probeAtlas();
-  return probe.available;
+export async function checkAtlasAvailability(): Promise<AtlasProbeResult> {
+  return probeAtlas();
 }

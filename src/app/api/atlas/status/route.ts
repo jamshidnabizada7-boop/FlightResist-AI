@@ -1,13 +1,15 @@
 /**
  * GET /api/atlas/status — is the atlas-flight CLI available on this deployment?
  *
- * Response: { "available": boolean, "reason?: string" }
+ * Response: { available: boolean, reason?: string, authenticated?: boolean }
  *
- * The frontend polls this on mount to decide whether Live mode is actually
- * selectable: serverless deployments (Vercel) ship without the CLI, so only
- * Demo mode works there. The check runs the same cached runtime probe
- * (60 s TTL) as provider selection — without the full provider/circuit
- * setup — so it is cheap to call repeatedly.
+ * `reason` names the actual blocker when unavailable: the CLI may be absent
+ * (serverless deployments ship without it) or installed but unable to reach
+ * its secure credential store (headless containers), in which case live
+ * operations fail even though `--version` works. The frontend polls this on
+ * mount to decide whether Live mode is actually selectable. The check runs
+ * the same cached runtime probe (60 s TTL) as provider selection — without
+ * the full provider/circuit setup — so it is cheap to call repeatedly.
  */
 
 import { NextResponse } from 'next/server';
@@ -18,16 +20,12 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const available = await checkAtlasAvailability();
-    return NextResponse.json(
-      available
-        ? { available: true }
-        : {
-            available: false,
-            reason:
-              'atlas-flight CLI not found on this deployment — Live mode requires the self-hosted version.',
-          },
-    );
+    const probe = await checkAtlasAvailability();
+    return NextResponse.json({
+      available: probe.available,
+      reason: probe.detail,
+      authenticated: probe.authenticated,
+    });
   } catch (err) {
     // Never throw from a status endpoint: `available: false` is the
     // actionable signal for the frontend; the real cause goes to the log.

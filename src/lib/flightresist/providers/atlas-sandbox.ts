@@ -108,6 +108,9 @@ export interface AtlasProbeResult {
   available: boolean;
   detail: string;
   checkedAtIso: string;
+  /** Machine-readable cause when `available` is false (secure store missing, CLI absent). */
+  reason?: string;
+  authenticated?: boolean;
   ticketingAvailable?: boolean;
   ticketingBlocker?: string;
   ticketingActivationUrl?: string;
@@ -123,7 +126,12 @@ export async function probeAtlas(): Promise<AtlasProbeResult> {
     const { stdout: vOut } = await exec(CLI, ['--version'], { timeout: 10000 });
     const v = vOut.trim().slice(0, 80);
 
-    // Auth status gives us ticketing_available / ticketing_blocker.
+    // Auth status gates more than ticketing: the CLI stores its credentials in
+    // an OS secure-credential facility. A container without one answers every
+    // real command with SECURE_STORE_UNAVAILABLE even though --version works,
+    // so that code must fail the probe — otherwise the UI reports "Atlas
+    // Connected" and every live operation fails later.
+    let authenticated: boolean | undefined;
     let ticketingAvailable: boolean | undefined;
     let ticketingBlocker: string | undefined;
     let ticketingActivationUrl: string | undefined;
@@ -131,17 +139,30 @@ export async function probeAtlas(): Promise<AtlasProbeResult> {
       const { stdout: aOut } = await exec(CLI, ['auth', 'status', '--json'], { timeout: 10000 });
       const env = JSON.parse(aOut) as AtlasEnvelope;
       const d = (env.data ?? {}) as Record<string, unknown>;
+      authenticated = typeof d.authenticated === 'boolean' ? d.authenticated : undefined;
       ticketingAvailable = typeof d.ticketing_available === 'boolean' ? d.ticketing_available : undefined;
       ticketingBlocker = typeof d.ticketing_blocker === 'string' ? d.ticketing_blocker : undefined;
       ticketingActivationUrl = typeof d.ticketing_activation_url === 'string' ? d.ticketing_activation_url : undefined;
+      if (env.code === 'SECURE_STORE_UNAVAILABLE') {
+        result = {
+          available: false,
+          detail:
+            '`atlas-flight` CLI is installed but its secure credential store is unavailable in this deployment (no OS keyring/secret-service) — live Atlas operations cannot run. Use the self-hosted version with a desktop environment for real flights.',
+          checkedAtIso: new Date().toISOString(),
+          reason: 'SECURE_STORE_UNAVAILABLE',
+        };
+        probeCache = { result, at: Date.now() };
+        return result;
+      }
     } catch {
       /* auth probe failure is non-fatal — search still works */
     }
 
     result = {
       available: true,
-      detail: `${CLI} CLI detected: ${v}; ticketing_available=${ticketingAvailable ?? 'unknown'}${ticketingBlocker ? ` (${ticketingBlocker})` : ''}`,
+      detail: `${CLI} CLI detected: ${v}; authenticated=${authenticated ?? 'unknown'}; ticketing_available=${ticketingAvailable ?? 'unknown'}${ticketingBlocker ? ` (${ticketingBlocker})` : ''}`,
       checkedAtIso: new Date().toISOString(),
+      authenticated,
       ticketingAvailable,
       ticketingBlocker,
       ticketingActivationUrl,
@@ -151,6 +172,7 @@ export async function probeAtlas(): Promise<AtlasProbeResult> {
       available: false,
       detail: `\`atlas-flight\` CLI not found on PATH (probe executed, exit≠0 or ENOENT) — Atlas sandbox transactions cannot run.`,
       checkedAtIso: new Date().toISOString(),
+      reason: 'CLI_NOT_FOUND',
     };
   }
   probeCache = { result, at: Date.now() };

@@ -75,6 +75,7 @@ interface Props {
 interface AtlasStatus {
   available: boolean;
   reason?: string;
+  authenticated?: boolean;
 }
 
 export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv, onHelp, onModeChanged }: Props) {
@@ -494,7 +495,8 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
 
       {/* Live-mode-blocked explainer — the user picked Live where the Atlas
           CLI cannot run (e.g. serverless deployments). Stays in Demo; nothing
-          is persisted. */}
+          is persisted. Uses the server's own reason (CLI absent vs. secure
+          store unavailable) instead of assuming one. */}
       <AlertDialog open={liveBlockedOpen} onOpenChange={setLiveBlockedOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -503,9 +505,9 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
               Live mode unavailable on this deployment
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Live mode requires the Atlas CLI (atlas-flight), which is not installed on this
-              deployment — only Demo mode is supported here, with simulated flights, fares
-              and bookings. Use the self-hosted version for real flights.
+              {atlasStatus?.available === false && atlasStatus.reason
+                ? atlasStatus.reason
+                : 'Live mode requires the Atlas CLI (atlas-flight), which cannot run on this deployment — only Demo mode is supported here, with simulated flights, fares and bookings. Use the self-hosted version for real flights.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
