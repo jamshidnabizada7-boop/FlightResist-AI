@@ -51,12 +51,13 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-# Copy prisma CLI binary for runtime migrations (avoids npx downloading a mismatched version)
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
+
+# Install prisma CLI directly so all transitive dependencies (effect, @prisma/config,
+# etc.) are present. Copying individual prisma packages from the builder misses them.
+RUN npm install prisma@6.11.1
 
 EXPOSE 10000
 
-# Run migrations then start server; use node directly to avoid npx issues.
+# Run migrations then start server.
 # && (not ;) so a failed migration prevents startup and the error is visible in Render logs.
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma && node server.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy --schema=./prisma/schema.prisma && node server.js"]
