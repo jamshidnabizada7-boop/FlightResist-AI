@@ -26,7 +26,7 @@ export function SiteFooter({ engineVersion }: Props) {
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-center gap-1.5">
-          {['Next.js 16', 'Qwen 2.5 (Alibaba Cloud)', 'Atlas Flights GDS', 'Qoder MCP Server', 'Deterministic Core', 'Prisma Ledger'].map(
+          {['Next.js 16', 'Qwen (Model Studio · Groq · Gemini)', 'Atlas Flights GDS', 'Qoder MCP Server', 'Deterministic Core', 'Prisma Ledger'].map(
             (t) => (
               <span
                 key={t}

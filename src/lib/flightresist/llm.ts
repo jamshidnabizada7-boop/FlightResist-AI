@@ -4,13 +4,18 @@
  * ARCHITECTURAL INVARIANT: the LLM is explanation-only. It receives the
  * deterministic engine's computed scores and is prompt-locked from recomputing
  * or contradicting them. All arithmetic lives in the deterministic TypeScript
- * modules. If the LLM call fails or times out, a deterministic template
+ * modules. If every LLM call fails or times out, a deterministic template
  * explanation is produced — the pipeline never blocks on the LLM.
  *
- * Backends:
- *   QWEN     — Alibaba Cloud Model Studio (Qwen 2.5 / DashScope OpenAI-compatible endpoint).
- *              Active when DASHSCOPE_API_KEY is present. Zero external SDK dependency: native fetch.
- *   TEMPLATE — deterministic template reasoner; instant and 100% offline-ready.
+ * Backends (OpenAI-compatible chat completions; tried in order, first key wins,
+ * and a failed/slow backend falls through to the next within a shared 9 s
+ * budget — then to the deterministic template):
+ *   DASHSCOPE   — Alibaba Cloud Model Studio (Qwen, preferred / first-class).
+ *   GROQ        — Groq OpenAI-compatible endpoint; default model is a Qwen
+ *                 instruct model (qwen/qwen3.8-27b) served by Groq.
+ *   GEMINI      — Google Gemini via its OpenAI-compatible surface.
+ *   OPENROUTER  — OpenRouter (e.g. qwen/qwen-plus) when funded.
+ *   TEMPLATE    — deterministic template reasoner; instant and 100% offline-ready.
  */
 
 import type { Itinerary, RecoveryAnalysis, LlmExplanation, LlmFactPayload, ScoredOption } from './types';
@@ -24,22 +29,75 @@ function sanitizeForPrompt(input: string): string {
     .slice(0, 200);                     // Limit length to prevent flooding
 }
 
-const LLM_TIMEOUT_MS = 9000;
+/** Shared wall-clock budget across ALL backend attempts; template takes over after this. */
+const LLM_TOTAL_TIMEOUT_MS = 9000;
+/** A backend attempt shorter than this cannot produce a useful completion — stop the chain. */
+const MIN_ATTEMPT_MS = 1500;
 
-/** Alibaba Cloud Model Studio — OpenAI-compatible chat completions. */
-const DASHSCOPE_API_KEY = process.env.DASHSCOPE_API_KEY || process.env.ALIBABA_CLOUD_API_KEY;
-const DASHSCOPE_BASE_URL =
-  process.env.DASHSCOPE_BASE_URL ?? 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
-const QWEN_MODEL = process.env.QWEN_MODEL ?? 'qwen-plus';
+type LlmBackend = 'DASHSCOPE' | 'GROQ' | 'GEMINI' | 'OPENROUTER';
 
-type LlmBackend = 'QWEN' | 'TEMPLATE';
+interface ProviderConfig {
+  id: LlmBackend;
+  apiKey: string | undefined;
+  baseUrl: string;
+  model: string;
+  /** Honest, provider-accurate label surfaced to the UI as evidence. */
+  label: string;
+  /** Strict JSON mode via response_format — only enabled where verified. */
+  jsonMode: boolean;
+}
 
-/** Resolves which backend to call. */
-function selectBackend(): LlmBackend {
-  const provider = (process.env.LLM_PROVIDER ?? 'auto').toLowerCase();
-  if (provider === 'template') return 'TEMPLATE';
-  if (provider === 'qwen' || DASHSCOPE_API_KEY) return 'QWEN';
-  return 'TEMPLATE';
+function providerConfigs(): ProviderConfig[] {
+  return [
+    {
+      id: 'DASHSCOPE',
+      apiKey: process.env.DASHSCOPE_API_KEY || process.env.ALIBABA_CLOUD_API_KEY,
+      baseUrl: process.env.DASHSCOPE_BASE_URL ?? 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
+      model: process.env.QWEN_MODEL ?? 'qwen-plus',
+      label: `alibaba-cloud-model-studio · ${process.env.QWEN_MODEL ?? 'qwen-plus'}`,
+      jsonMode: true,
+    },
+    {
+      id: 'GROQ',
+      apiKey: process.env.GROQ_API_KEY,
+      baseUrl: process.env.GROQ_BASE_URL ?? 'https://api.groq.com/openai/v1',
+      model: process.env.GROQ_MODEL ?? 'qwen/qwen3.8-27b',
+      label: `groq · ${process.env.GROQ_MODEL ?? 'qwen/qwen3.8-27b'} (Qwen via Groq)`,
+      jsonMode: false,
+    },
+    {
+      id: 'GEMINI',
+      apiKey: process.env.GEMINI_API_KEY,
+      baseUrl: process.env.GEMINI_BASE_URL ?? 'https://generativelanguage.googleapis.com/v1beta/openai',
+      model: process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
+      label: `google-gemini · ${process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'}`,
+      jsonMode: false,
+    },
+    {
+      id: 'OPENROUTER',
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseUrl: process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
+      model: process.env.OPENROUTER_MODEL ?? 'qwen/qwen-plus',
+      label: `openrouter · ${process.env.OPENROUTER_MODEL ?? 'qwen/qwen-plus'}`,
+      jsonMode: false,
+    },
+  ];
+}
+
+/** Backends to try, in priority order. `LLM_PROVIDER` overrides; 'auto' = key presence. */
+function resolveChain(): ProviderConfig[] {
+  const all = providerConfigs();
+  const override = (process.env.LLM_PROVIDER ?? 'auto').toLowerCase();
+  if (override === 'template') return [];
+  if (override === 'qwen') {
+    // Legacy alias: prefer Alibaba Cloud Model Studio explicitly.
+    return all.filter((p) => p.id === 'DASHSCOPE' && p.apiKey);
+  }
+  if (override !== 'auto') {
+    const picked = all.find((p) => p.id.toLowerCase() === override && p.apiKey);
+    return picked ? [picked] : [];
+  }
+  return all.filter((p) => Boolean(p.apiKey));
 }
 
 function optionContext(o: ScoredOption): string {
@@ -137,41 +195,77 @@ function stripFences(text: string): string {
     .trim();
 }
 
-/** Raw completion text plus the model label surfaced to the UI as evidence. */
+/** Raw completion text plus the honest model label surfaced to the UI as evidence. */
 type BackendResult = { text: string; model: string };
 
-/** Alibaba Cloud Model Studio (DashScope) via its OpenAI-compatible REST surface. */
-async function callQwen(prompt: string): Promise<BackendResult> {
-  if (!DASHSCOPE_API_KEY) throw new Error('DASHSCOPE_API_KEY is not set');
-  const res = await fetch(`${DASHSCOPE_BASE_URL}/chat/completions`, {
+/** One OpenAI-compatible chat completion against a provider config. */
+async function callProvider(p: ProviderConfig, prompt: string, budgetMs: number): Promise<BackendResult> {
+  if (!p.apiKey) throw new Error(`${p.id} API key is not set`);
+  const body: Record<string, unknown> = {
+    model: p.model,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: prompt },
+    ],
+    temperature: 0.3,
+  };
+  if (p.jsonMode) body.response_format = { type: 'json_object' };
+  const res = await fetch(`${p.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${DASHSCOPE_API_KEY}`,
+      Authorization: `Bearer ${p.apiKey}`,
     },
-    body: JSON.stringify({
-      model: QWEN_MODEL,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: prompt },
-      ],
-      temperature: 0.3,
-      response_format: { type: 'json_object' },
-    }),
-    // Releases the socket if Model Studio stalls; the outer race still guards latency.
-    signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+    body: JSON.stringify(body),
+    // Bounds latency AND releases the socket if the provider stalls; the shared
+    // budget across the chain is enforced by the caller.
+    signal: AbortSignal.timeout(budgetMs),
   });
   if (!res.ok) {
-    throw new Error(`Model Studio HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    throw new Error(`${p.id} HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
   }
   const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
   return {
     text: data.choices?.[0]?.message?.content ?? '',
-    model: `alibaba-cloud-model-studio · ${QWEN_MODEL}`,
+    model: p.label,
   };
 }
 
-/** Generates the plain-English trade-off explanation (LLM → template fallback).
+/** Raw completion plus its validated parse and the honest model label for the UI. */
+type ChainResult = BackendResult & { parsed: LlmExplanation };
+
+/**
+ * Try every configured backend within the shared wall-clock budget.
+ * A failing backend (bad key, 402 credits, stall, malformed JSON) falls through
+ * to the next; exhausting the chain throws so the caller uses the template.
+ */
+async function callChain(prompt: string): Promise<ChainResult> {
+  const chain = resolveChain();
+  if (chain.length === 0) throw new Error('No LLM backend configured (LLM_PROVIDER=template or no keys)');
+  const deadline = Date.now() + LLM_TOTAL_TIMEOUT_MS;
+  let lastErr: unknown;
+  for (const p of chain) {
+    const remaining = deadline - Date.now();
+    if (remaining < MIN_ATTEMPT_MS) break;
+    try {
+      const result = await callProvider(p, prompt, remaining);
+      const parsed = JSON.parse(stripFences(result.text)) as LlmExplanation;
+      if (!parsed.headline || !parsed.summary || !Array.isArray(parsed.tradeoffs)) {
+        throw new Error('LLM response missing required fields');
+      }
+      return { ...result, parsed };
+    } catch (err) {
+      lastErr = err;
+      console.warn(
+        `[flightresist] LLM backend ${p.id} failed — falling through to next provider:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('All LLM backends failed');
+}
+
+/** Generates the plain-English trade-off explanation (LLM chain → template fallback).
  *  Phase 5: receives the deterministic fact payload to embed in the LLM prompt
  *  and to expose on the response as evidence. */
 export async function generateExplanation(
@@ -180,21 +274,9 @@ export async function generateExplanation(
   factPayload: LlmFactPayload,
 ): Promise<LlmExplanation> {
   const started = Date.now();
-  const backend = selectBackend();
   try {
-    if (backend === 'TEMPLATE') throw new Error('LLM disabled by LLM_PROVIDER=template');
     const prompt = buildPrompt(analysis, itinerary, factPayload);
-    const { text, model } = await Promise.race([
-      callQwen(prompt),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('LLM timeout')), LLM_TIMEOUT_MS),
-      ),
-    ]);
-
-    const parsed = JSON.parse(stripFences(text)) as LlmExplanation;
-    if (!parsed.headline || !parsed.summary || !Array.isArray(parsed.tradeoffs)) {
-      throw new Error('LLM response missing required fields');
-    }
+    const { parsed, model } = await callChain(prompt);
     return {
       headline: String(parsed.headline).slice(0, 160),
       summary: String(parsed.summary).slice(0, 900),

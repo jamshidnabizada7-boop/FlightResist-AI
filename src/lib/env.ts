@@ -31,13 +31,21 @@ export const env = {
   // Travel provider selection (demo | atlas | auto)
   ATLAS_MODE: optional('ATLAS_MODE', 'demo'),
 
-  // LLM explanation layer (auto | qwen | zai | template)
+  // LLM explanation layer (auto | dashscope | qwen | groq | gemini | openrouter | template)
   LLM_PROVIDER: optional('LLM_PROVIDER', 'auto'),
 
-  // Alibaba Cloud Model Studio (DashScope) — OpenAI-compatible endpoint
+  // Alibaba Cloud Model Studio (DashScope) — preferred Qwen endpoint
   DASHSCOPE_API_KEY: optional('DASHSCOPE_API_KEY'),
   DASHSCOPE_BASE_URL: optionalUrl('DASHSCOPE_BASE_URL'),
   QWEN_MODEL: optional('QWEN_MODEL', 'qwen-plus'),
+
+  // Fallback explanation backends (all OpenAI-compatible; tried in order)
+  GROQ_API_KEY: optional('GROQ_API_KEY'),
+  GROQ_MODEL: optional('GROQ_MODEL', 'qwen/qwen3.8-27b'),
+  GEMINI_API_KEY: optional('GEMINI_API_KEY'),
+  GEMINI_MODEL: optional('GEMINI_MODEL', 'gemini-2.5-flash'),
+  OPENROUTER_API_KEY: optional('OPENROUTER_API_KEY'),
+  OPENROUTER_MODEL: optional('OPENROUTER_MODEL', 'qwen/qwen-plus'),
 } as const;
 
 // --- Informational warnings ---------------------------------------------------
@@ -45,6 +53,6 @@ export const env = {
 if (env.ATLAS_MODE === 'demo') {
   console.info('[env] Running in DEMO mode — no real bookings will be made');
 }
-if (!env.DASHSCOPE_API_KEY) {
-  console.info('[env] No DASHSCOPE_API_KEY configured — LLM will use template fallback');
+if (!env.DASHSCOPE_API_KEY && !env.GROQ_API_KEY && !env.GEMINI_API_KEY && !env.OPENROUTER_API_KEY) {
+  console.info('[env] No LLM provider keys configured — explanations use the deterministic template fallback');
 }

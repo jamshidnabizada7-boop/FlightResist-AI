@@ -250,7 +250,7 @@ export function HowItWorks({ providerMode }: Props) {
                 {[
                   'Next.js 16 App Router',
                   'TypeScript 5 strict',
-                  'Qwen 2.5 (Alibaba Cloud Model Studio)',
+                  'Qwen (Alibaba Model Studio · Groq · Gemini chain)',
                   'Atlas Flight Booking GDS',
                   'Qoder Agentic Workspace (MCP Server)',
                   'Prisma Transaction Ledger',

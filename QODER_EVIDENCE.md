@@ -90,10 +90,12 @@ Setup record: [`ATLAS_ENVIRONMENT_SETUP.md`](./ATLAS_ENVIRONMENT_SETUP.md) · Ca
 
 | Service | Use | Where |
 |---|---|---|
-| **Model Studio (Qwen)** | Explanation-only LLM via the OpenAI-compatible DashScope endpoint. `LLM_PROVIDER=qwen`, model `qwen-plus`. Implemented with plain `fetch` — no SDK dependency. | `src/lib/flightresist/llm.ts` |
+| **Model Studio (Qwen)** | Explanation-only LLM via the OpenAI-compatible DashScope endpoint (`LLM_PROVIDER=dashscope`, model `qwen-plus`). First-class member — and the top — of the provider chain. | `src/lib/flightresist/llm.ts` |
 | **Qoder** | The development platform for Phases 1–10, and an MCP client that can drive the shipped engine | this document |
 
-The LLM is **never** in the control path. It receives the deterministic engine's computed scores and is prompt-locked from recomputing them; any failure, timeout, or malformed response falls back to a deterministic template. Proof: with a deliberately invalid key, Model Studio returns HTTP 401 and the pipeline still produces risk `87`, `42` candidates, and Option B at `R = 82` — unchanged.
+The explanation layer is a **provider chain** (`dashscope → groq → gemini → openrouter → deterministic template`), all called with plain `fetch` — no SDK dependency. In the current deployment the chain resolves to **Qwen served via Groq's OpenAI-compatible API** (`qwen/qwen3.8-27b`); the UI badge states the backend that actually answered. Setting `DASHSCOPE_API_KEY` promotes direct Alibaba Cloud Model Studio to the front of the chain with no code change.
+
+The LLM is **never** in the control path. It receives the deterministic engine's computed scores and is prompt-locked from recomputing them; any failure, timeout, or malformed response falls through the chain to the deterministic template. Proof: with a deliberately invalid key, the pipeline still produces risk `87`, `42` candidates, and Option B at `R = 82` — unchanged.
 
 ---
 
