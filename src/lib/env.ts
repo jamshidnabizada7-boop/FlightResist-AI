@@ -23,8 +23,10 @@ export const env = {
   // Runtime
   NODE_ENV: process.env.NODE_ENV ?? 'development',
 
-  // Database (Prisma + SQLite)
-  DATABASE_URL: optional('DATABASE_URL', 'file:./db/custom.db'),
+  // Database (Prisma + SQLite) — only default to SQLite in development.
+  // In production the env var must be provided explicitly (e.g. Postgres on
+  // Render); a silent SQLite fallback would mask a missing DATABASE_URL.
+  DATABASE_URL: optional('DATABASE_URL', process.env.NODE_ENV === 'production' ? undefined : 'file:./db/custom.db'),
 
   // Travel provider selection (demo | atlas | auto)
   ATLAS_MODE: optional('ATLAS_MODE', 'demo'),

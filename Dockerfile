@@ -57,5 +57,6 @@ COPY --from=builder /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 
 EXPOSE 10000
 
-# Run migrations then start server; use node directly to avoid npx issues
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma || true; node server.js"]
+# Run migrations then start server; use node directly to avoid npx issues.
+# && (not ;) so a failed migration prevents startup and the error is visible in Render logs.
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma && node server.js"]
