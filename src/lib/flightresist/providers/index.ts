@@ -203,7 +203,7 @@ export async function getActiveProvider(userMode?: string): Promise<ActiveProvid
     const probe = await probeAtlas();
     if (!probe.available) {
       throw new Error(
-        'Live mode unavailable on this deployment — the atlas-flight CLI is not installed. This environment (e.g. Vercel serverless) only supports Demo mode; use the self-hosted version for real flights.',
+        'Live mode unavailable on this deployment — the atlas-flight CLI is not installed. Only Demo mode is supported here; use the self-hosted version for real flights.',
       );
     }
     // Reading `isOpen` also performs the OPEN → HALF_OPEN transition once the

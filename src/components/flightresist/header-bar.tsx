@@ -493,8 +493,8 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
       </div>
 
       {/* Live-mode-blocked explainer — the user picked Live where the Atlas
-          CLI cannot run (e.g. Vercel serverless). Stays in Demo; nothing is
-          persisted. */}
+          CLI cannot run (e.g. serverless deployments). Stays in Demo; nothing
+          is persisted. */}
       <AlertDialog open={liveBlockedOpen} onOpenChange={setLiveBlockedOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -504,8 +504,8 @@ export function HeaderBar({ trip, sseConnected, onReset, resetBusy, onExportCsv,
             </AlertDialogTitle>
             <AlertDialogDescription>
               Live mode requires the Atlas CLI (atlas-flight), which is not installed on this
-              deployment (Vercel) — only Demo mode is supported here, with simulated flights,
-              fares and bookings. Use the self-hosted version for real flights.
+              deployment — only Demo mode is supported here, with simulated flights, fares
+              and bookings. Use the self-hosted version for real flights.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

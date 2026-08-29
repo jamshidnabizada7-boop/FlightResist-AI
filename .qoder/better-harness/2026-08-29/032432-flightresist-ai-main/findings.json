@@ -1,0 +1,180 @@
+{
+  "schema": "better-harness/findings@1",
+  "generated_at": "2026-08-29T03:24:32+00:00",
+  "run_id": "032432-flightresist-ai-main",
+  "workspace": "d:/FlightResist-AI-main",
+  "perspective": "A human developer who wants to USE this platform (Qoder + FlightResist AI). Core questions: can I trust the agent, can I verify its claims, can I run and extend the project without wasting my evening, and what should I copy into my own workflow?",
+  "project": {
+    "name": "FlightResist AI 2.0",
+    "context": "Autonomous travel-recovery intelligence built for the Alibaba Cloud x Atlas Agentic AI Hackathon 2026. When a journey breaks, it scores whole-itinerary impact, prunes a 42-candidate funnel deterministically, ranks options, explains in plain English, and executes after one human approval.",
+    "stack": [
+      "Next.js 16 (App Router, Turbopack)",
+      "TypeScript 5",
+      "Tailwind 4 + shadcn/ui",
+      "Prisma 6 + SQLite",
+      "SSE agent trace",
+      "MCP-over-HTTP (JSON-RPC 2.0)",
+      "LLM explanation layer: Alibaba Cloud Model Studio (Qwen) / Z.AI SDK / deterministic template fallback"
+    ],
+    "harness_lineage": "Z.ai Code (MVP, worklog Tasks 1-15) -> Antigravity (360-degree audit, no code touched) -> Qoder (Phases 0-10 + release freeze) -> Vercel + Alibaba Cloud ECS deployment runbooks"
+  },
+  "verdict": {
+    "headline": "Trust is engineered, not claimed: this is one of the most disciplined agent-harness codebases you will meet. Every side-effecting agent path is gated, every claim maps to a runnable command, and honesty is treated as a feature. The remaining gap is packaging for humans: 11 overlapping status docs, POSIX-only ops ergonomics, and no CI wiring for the 100+ assertions that already exist.",
+    "overall_score": 4.2,
+    "scale": "0-5",
+    "one_liner_for_a_busy_human": "Copy the harness practices (skills, MCP, worklog, verification loop); fix the packaging (one dated current-state page, CI, cross-platform scripts)."
+  },
+  "scorecard": [
+    { "id": "skills", "dimension": "Skill hygiene & supply chain", "score": 5.0, "rationale": "Official atlas-flight-booking skill hash-pinned in skills-lock.json (SHA-256), self-bootstrapping CLI chain (uv -> Python 3.12 -> atlas-flight 0.3.12), version-gated with never-downgrade rules, progressive references (SKILL.md + 4 reference docs + agents/openai.yaml)." },
+    { "id": "mcp", "dimension": "MCP integration", "score": 5.0, "rationale": "Real MCP-over-HTTP runtime at /api/mcp (JSON-RPC 2.0, correct -32700/-32601/-32602/-32603 errors, isError envelopes). All 5 tools delegate to the same engine functions as REST, so the agent surface cannot drift. The one transacting tool is triple-gated. 17/17 smoke checks drive the full golden flow through MCP only." },
+    { "id": "verification", "dimension": "Verification culture", "score": 5.0, "rationale": "Every phase ends verify -> document -> validate -> preserve golden demo -> proceed only if stable. 91/91 safety assertions (no approval = no transaction; double approval = one transaction), 17/17 MCP, golden-flow and session-isolation suites, browser E2E with screenshots, lint/TS/build gates each round. README invites: 'Verify every number yourself.'" },
+    { "id": "safety", "dimension": "Agent safety engineering", "score": 5.0, "rationale": "Human approval gate is the only path to side effects (state machine + required enum payload). Idempotency guard returns cached results and emits audit events; execution lock claimed synchronously before any await; provider failure classifier; LLM prompt-locked to explanation-only with fact payload and template fallback. Proven: invalid API key changes zero output numbers." },
+    { "id": "docs", "dimension": "Documentation findability", "score": 3.0, "rationale": "Content quality is exceptional but sprawled: 11 status/plan docs (~4.9k lines) with time-skewed environment snapshots (Atlas CLI 'NOT FOUND' in one doc, 'installed + AUTHORIZED' in another - both true at different times). QODER_EVIDENCE.md is the 60-second page, but nothing at the entry point tells a newcomer that." },
+    { "id": "portability", "dimension": "Environment portability", "score": 2.5, "rationale": "package.json start/db:* scripts use POSIX env-prefix syntax; .zscripts and deploy/ target sh/Ubuntu; current host is Windows PowerShell. MCP config assumes localhost:3000 with no auth token (fine locally, not remotely). Dev server itself runs fine cross-platform." },
+    { "id": "automation", "dimension": "Continuous automation", "score": 3.0, "rationale": "Impressive in-session autonomy: cron watchdog (job 334069, webDevReview every 900s) ran 10+ QA rounds against the worklog contract, declared and held a feature-freeze. But nothing runs on push/PR - the discipline lives in prompts and worklog, not in CI a human can lean on." },
+    { "id": "onboarding", "dimension": "First five minutes as a human", "score": 4.0, "rationale": "README opens with a 30-second try-it (press D, watch risk hit 87, press A, press R), keyboard shortcuts, presenter checklist, and one-page print summary. Requires starting the dev server first; doc ambiguity (which page is current?) is the main tax." }
+  ],
+  "harness_practices": [
+    {
+      "id": "p1",
+      "practice": "Hash-pinned, self-bootstrapping skills",
+      "evidence": "skills-lock.json pins atlas-flight-booking to GitHub source + computedHash; SKILL.md bootstraps uv (official installer, OS-branched) then `uv tool install --force --python 3.12 atlas-flight-booking==0.3.12`, treats 0.3.12 as minimum, never downgrades, never reinstalls when current.",
+      "human_value": "I always know exactly which agent capability version is in play, and the skill repairs its own toolchain instead of failing mid-task."
+    },
+    {
+      "id": "p2",
+      "practice": "Stop-the-turn checkpoints in skills for money paths",
+      "evidence": "SKILL.md 'Mandatory checkpoints': AUTHORIZATION, PRICE INCREASE, SEAT FALLBACK, PAYMENT - each requires stopping the turn and explicit user consent. Plus: branch on response code never message, preserve opaque IDs, single-use payment confirmation IDs, at most one retry for read-only ops and never for order/payment, passenger data never copied into chat/logs/args.",
+      "human_value": "I can hand this agent a credit card without holding my breath. The dangerous moments are designed to pause, not to flow."
+    },
+    {
+      "id": "p3",
+      "practice": "MCP tools delegate to the same engine as REST",
+      "evidence": "src/app/api/mcp/route.ts: get_current_trip -> currentTripResponse(), confirm_recovery -> executeRecovery(proposal_id), etc. 'No tool has its own logic.' qoder_mcp_config.json binds it into a Qoder workspace; tests/mcp-smoke.mjs drives the entire golden flow through JSON-RPC only (17/17).",
+      "human_value": "The agent surface cannot drift from the app. One engine, two doors. And the config comment openly declares: 'No capability is claimed that the app does not actually perform.'"
+    },
+    {
+      "id": "p4",
+      "practice": "Capability honesty as an engineered discipline",
+      "evidence": "[ENV: DETERMINISTIC DEMO] badges, SIM-* references, pnr: null (never fabricated). Phase 1 produced a SUPPORTED/UNSUPPORTED/UNVERIFIED matrix from real CLI probing. The MCP surface deliberately omits cancel/refund/change because Atlas does not support them. QODER_EVIDENCE.md section 5 admits the earlier fake MCP trace and documents the fix (build the runtime, not soften the wording).",
+      "human_value": "I can believe the docs. When a project tells me what it CANNOT do, I trust what it says it can."
+    },
+    {
+      "id": "p5",
+      "practice": "Phase-gated plan as an agent takeover contract",
+      "evidence": "docs/QODER_UPGRADE_PLAN.md (613 lines): READ THIS FIRST, six non-negotiable rules (preserve the working product, never invent Atlas capabilities, never fake execution, keep one provider interface, deterministic engine stays authoritative, Qoder integration must be genuine), phases 0-12 with acceptance criteria, STOP conditions, and a freeze directive.",
+      "human_value": "It prevents the rewrite-happy-agent failure mode. The agent becomes a disciplined successor, not an opinionated intern. This document is a reusable pattern for any AI takeover of an existing codebase."
+    },
+    {
+      "id": "p6",
+      "practice": "Worklog as the inter-agent handover contract",
+      "evidence": "worklog.md: 15 task entries + 10 phase entries, each with Task ID, Agent, Work Log, Stage Summary, and next actions. The cron watchdog (webDevReview every 900s) treats the worklog as its handover contract; rounds include QA regressions, feature work, root-caused bugs (e.g. 'lambda dropped the second argument - NOT stale chunks'), false-alarm investigations, and a declared feature-freeze that held across rounds.",
+      "human_value": "I can leave for a week and the project keeps a continuous memory. Session-hopping agents behave like one persistent engineer."
+    },
+    {
+      "id": "p7",
+      "practice": "Claims as commands (executable evidence)",
+      "evidence": "README 'Verify every number yourself': three one-liners (phase6-safety 91/91, atlas-golden-flow ALL PASS, mcp-smoke ALL PASS). package.json wires test:mcp. Every doc claim points at a file or a command (QODER_EVIDENCE.md: 'Every claim below points at a file or a command you can run yourself').",
+      "human_value": "Believing the docs costs one terminal. Trust scales from author to any reader."
+    },
+    {
+      "id": "p8",
+      "practice": "Deterministic engine authoritative, agents orchestrate and explain",
+      "evidence": "PHASE4_AGENTIC_VALIDATION.md responsibility matrix: SUPERVISOR/IMPACT_REASONER/TRADE_OFF_EXPLAINER/TOOL_ORCHESTRATOR orchestrate; DETERMINISTIC_ENGINE/OPTIMIZER compute. Every one of 24 pipeline events is tagged with its actor. LLM receives a locked fact payload; with a deliberately invalid key the pipeline still produces risk 87, 42 candidates, Option B R=82 - unchanged.",
+      "human_value": "I always know who decided. When something is wrong, there is exactly one place to look - and it is code, not a model's mood."
+    },
+    {
+      "id": "p9",
+      "practice": "Safety invariants proven by adversarial tests",
+      "evidence": "tests/phase6-safety.mjs (91 assertions): no approval -> no transaction; double approval -> exactly one transaction (idempotency guard + synchronous execution lock); invalid transitions -> safe errors; failure classification; audit-trail completeness. Session-isolation.mjs proves two cookie-bearing clients hold fully independent trip states.",
+      "human_value": "The safety story is not a paragraph in the README - it is a regression suite that fails loudly if someone breaks the guarantee."
+    },
+    {
+      "id": "p10",
+      "practice": "Deployment harness with honest runbooks",
+      "evidence": "deploy/bootstrap.sh: idempotent one-shot ECS provisioning (Node 24 + Caddy + TLS, sslip.io fallback, writes no secrets). .vercel-tmp/vercel-login.cjs automates the Vercel OAuth device flow with strict URL pattern validation. .env.example documents every knob with warnings ('Atlas Sandbox rate-limits duplicate bookings. Do not loop atlas mode runs').",
+      "human_value": "Going live is a runbook, not an archaeology dig. The failure modes I would hit are pre-documented."
+    }
+  ],
+  "insights": [
+    { "id": "i1", "kind": "trust", "text": "The safest agent design I have seen around money: skill-level stop-the-turn checkpoints + state-machine approval gate + idempotency guard + audit events, each layer independently testable. Defense in depth, not a single 'the model was told to be careful'." },
+    { "id": "i2", "kind": "verifiability", "text": "Claims come as commands. 91 safety assertions, 17 MCP checks, and a golden flow I can run in one line each. The project's own diagnosis - 'you are not behind on engineering, you are behind on proof' - is the most transferable lesson in the repo." },
+    { "id": "i3", "kind": "architecture", "text": "One engine, two doors: MCP tools delegate to the same functions as REST, so the agent surface cannot drift from the app. This is the single cheapest architectural decision that makes an agent integration trustworthy." },
+    { "id": "i4", "kind": "memory", "text": "The worklog is the real invention here. Task ID + Agent + Stage Summary + next actions turns session-hopping agents (and a 15-minute cron watchdog) into one continuous engineer. It costs nothing and it survives context windows." },
+    { "id": "i5", "kind": "honesty", "text": "Honesty is load-bearing: env badges, SIM-* references, pnr: null, a SUPPORTED/UNSUPPORTED/UNVERIFIED matrix, and a public correction of their own earlier fake MCP trace. The docs are believable precisely because the project documents its own past over-claims." },
+    { "id": "i6", "kind": "friction", "text": "But I drown in 11 status docs (~4.9k lines) with time-skewed snapshots: Atlas CLI is 'NOT FOUND' in IMPLEMENTATION_STATUS.md and 'installed + AUTHORIZED' in ATLAS_ENVIRONMENT_SETUP.md. Both true at different times; nothing tells me which page is current. One dated current-state page would fix it." },
+    { "id": "i7", "kind": "friction", "text": "The ops layer assumes POSIX: start/db:* scripts use env-prefix syntax, .zscripts and deploy target Ubuntu, and the MCP config hardcodes localhost:3000 with no auth token. On my Windows host the app runs, the runbooks do not. Cross-platform scripts + a bearer token would make this deployable by anyone." },
+    { "id": "i8", "kind": "gap", "text": "The discipline lives in prompts, not pipelines. The 100+ assertions exist but nothing runs them on push/PR - trust currently depends on agents (and me) remembering to run them. A 20-line GitHub Actions workflow running what already exists is the highest-leverage missing piece." },
+    { "id": "i9", "kind": "pattern", "text": "The 613-line upgrade plan (non-negotiable rules, phase acceptance criteria, STOP conditions, freeze directive) is a reusable contract for any AI takeover of a working codebase. It converted 'agent rebuilds my app' risk into 'agent succeeds my app'." },
+    { "id": "i10", "kind": "philosophy", "text": "Deterministic-first agentic design pays off for humans: agents orchestrate and explain; the engine computes; the LLM is prompt-locked to a fact payload with a template fallback. Autonomy without abdication - and an invalid API key provably changes nothing." }
+  ],
+  "friction": [
+    { "id": "f1", "issue": "Documentation sprawl with staleness ambiguity", "evidence": "11 status/plan docs (~4.9k lines): QODER_UPGRADE_STATUS.md (1,643), ANTIGRAVITY_IMPROVEMENTS.md (746), worklog.md (539), docs/QODER_UPGRADE_PLAN.md (613), FUTURE_PROGRESS.md (420), PHASE4_AGENTIC_VALIDATION.md, ATLAS_ENVIRONMENT_SETUP.md, IMPLEMENTATION_STATUS.md, QODER_EVIDENCE.md, README.md, DEPLOY.md. Environment snapshots contradict across time (Atlas absent vs authorized; qoder absent vs 1.24.2).", "impact": "A newcomer cannot tell which page is current without reading dates; the project even diagnosed this itself ('your Qoder evidence is buried in a 1,643-line status document')." },
+    { "id": "f2", "issue": "POSIX-only ops ergonomics vs Windows host", "evidence": "package.json scripts `start`, `db:push`, `db:migrate`, `db:reset` use `VAR=value cmd` syntax; .zscripts/*.sh and deploy/*.sh target sh/Ubuntu; current workspace is Windows PowerShell.", "impact": "App runs; ops scripts and runbooks silently fail or go unused on the machines many humans actually use." },
+    { "id": "f3", "issue": "No CI enforcement of existing tests", "evidence": "No .github/workflows; suites are invoked manually or by agents (worklog, watchdog rounds). package.json exposes only test:mcp.", "impact": "Guarantees depend on memory and prompts; a bad commit can pass silently until the next watchdog round." },
+    { "id": "f4", "issue": "MCP endpoint trusts localhost", "evidence": "qoder_mcp_config.json points at http://localhost:3000/api/mcp with only a cosmetic X-FlightResist-Client header; confirm_recovery is state-gated but not identity-gated.", "impact": "Fine for a local demo; any remote exposure would let an unauthenticated caller drive the (demo-mode) booking flow." },
+    { "id": "f5", "issue": "Golden-value test brittleness", "evidence": "mcp-smoke asserts exact deterministic values (SIM-REV increments, R=82, risk 87); Phase 2 records two failures that were defects in the test, not the app; worklog rounds 9 records two more false alarms (mid-animation sampling, case-sensitive string).", "impact": "Excellent as executable specs, but fixture edits or timing assumptions generate false failures that cost a human triage time." },
+    { "id": "f6", "issue": "Dead weight and duplicated state", "evidence": "examples/websocket/ with 2 known TypeScript errors; mini-services/ scaffold + .zscripts for services that do not exist here; .vercel-tmp/ committed with login.log; db/custom.db duplicated at db/ and prisma/db/; tests/tmp-*.mjs scratch suites.", "impact": "Small but real confusion tax for a new user deciding what is load-bearing." },
+    { "id": "f7", "issue": "Bilingual asymmetry in the skill", "evidence": "SKILL.md's capability answer is Chinese-first with English scaffolding around it (target-hackathon audience), including mandated Chinese wording for specific user-facing messages.", "impact": "An English-only user gets an unexpected language switch mid-flow; copy needs localization awareness before reuse." },
+    { "id": "f8", "issue": "Demo-perfect scope is narrow by design", "evidence": "One itinerary (TRIP-SIN-NRT-2026), a 42-candidate fixture, meeting-centric weights; production ticketing honestly disclosed as blocked (TICKETING_ACTIVATION_REQUIRED).", "impact": "Anyone treating it as a general product hits the edges within minutes - which the docs admit, but a user must read them to know." }
+  ],
+  "adopt_tomorrow": [
+    { "id": "a1", "pattern": "Pin skills with hashes and let them self-bootstrap their CLI", "source": "skills-lock.json + SKILL.md Start section" },
+    { "id": "a2", "pattern": "Write stop-the-turn checkpoint blocks into any skill that can spend money or mutate state", "source": "SKILL.md 'Mandatory checkpoints' (AUTHORIZATION / PRICE INCREASE / SEAT FALLBACK / PAYMENT)" },
+    { "id": "a3", "pattern": "Make MCP tools delegate to the same functions as REST, and smoke-test the whole flow through MCP only", "source": "src/app/api/mcp/route.ts + tests/mcp-smoke.mjs" },
+    { "id": "a4", "pattern": "Advertise only verified capabilities; omit unsupported tools rather than stub them; badge the active environment everywhere", "source": "Phase 1 capability matrix + deliberate omission of cancel/refund/change" },
+    { "id": "a5", "pattern": "Keep a running worklog (Task ID, Agent, Work Log, Stage Summary, Next) and let a scheduled QA loop consume it as its contract", "source": "worklog.md + cron watchdog rounds 1-10" },
+    { "id": "a6", "pattern": "Hand agents a phase plan with non-negotiable rules, per-phase acceptance criteria, STOP conditions, and a freeze directive", "source": "docs/QODER_UPGRADE_PLAN.md" },
+    { "id": "a7", "pattern": "Prompt-lock the LLM to a deterministic fact payload, fall back to a template, and prove the pipeline survives an invalid API key", "source": "src/lib/flightresist/llm.ts + Phase 5/6 verification" },
+    { "id": "a8", "pattern": "Guard approvals with idempotency + a lock claimed before any await + audit events, and encode the guarantees as a test suite", "source": "pipeline.ts/store.ts + tests/phase6-safety.mjs (91/91)" }
+  ],
+  "metrics": {
+    "skills_pinned": 1,
+    "skill_reference_files": 5,
+    "mcp_tools_exposed": 5,
+    "mcp_tools_side_effecting": 1,
+    "approval_gates_on_booking_tool": 3,
+    "core_executable_suites": 5,
+    "scratch_executable_suites": 3,
+    "safety_assertions": 91,
+    "mcp_smoke_checks": 17,
+    "golden_flow_checks": "20+ per run",
+    "phases_planned": 13,
+    "phases_executed": "0-12 through release freeze (Phase 10 frozen at commit 2398e87)",
+    "watchdog_rounds_documented": 10,
+    "worklog_entries": "15 tasks + 10 phase records",
+    "status_doc_count": 11,
+    "status_doc_total_lines": 4900,
+    "agent_trace_labels": 6,
+    "golden_numbers": { "risk_before": 87, "risk_after": 18, "funnel": "42 -> 30 -> 12 -> 3", "r_scores": "B 82.0 (recommended) / C 77.7 / A 49.5" },
+    "real_transaction_proof": "Atlas Sandbox chain reached TICKETED with a live airline PNR (search -> fare verify -> confirm-price -> order -> pay -> ticketing)",
+    "subagents_used": ["Search", "CodeReview", "Debug", "Browser", "GeneralPurpose", "plan-agent"]
+  },
+  "evidence_index": [
+    { "path": ".agents/skills/atlas-flight-booking/SKILL.md", "proves": "Checkpoint-gated, self-bootstrapping official skill design" },
+    { "path": "skills-lock.json", "proves": "Hash-pinned skill supply chain" },
+    { "path": "qoder_mcp_config.json", "proves": "Workspace import binding for the MCP server, with an honesty comment" },
+    { "path": "src/app/api/mcp/route.ts", "proves": "Real MCP-over-HTTP JSON-RPC 2.0 runtime delegating to the engine" },
+    { "path": "tests/mcp-smoke.mjs", "proves": "17-check end-to-end MCP golden flow" },
+    { "path": "tests/phase6-safety.mjs", "proves": "91 safety assertions incl. approval and idempotency invariants" },
+    { "path": "tests/session-isolation.mjs", "proves": "Cookie-based multi-session isolation" },
+    { "path": "docs/QODER_UPGRADE_PLAN.md", "proves": "Phase-gated agent takeover contract with STOP conditions" },
+    { "path": "worklog.md", "proves": "Inter-agent handover contract and watchdog rounds 1-10" },
+    { "path": "QODER_EVIDENCE.md", "proves": "One-page Qoder usage evidence incl. honest-limits section" },
+    { "path": "QODER_UPGRADE_STATUS.md", "proves": "1,643-line phase-by-phase audit trail incl. fake-trace correction" },
+    { "path": "PHASE4_AGENTIC_VALIDATION.md", "proves": "Agent responsibility matrix and approval safety proof" },
+    { "path": "ATLAS_ENVIRONMENT_SETUP.md", "proves": "No-sudo toolchain bootstrapping and Atlas authorization record" },
+    { "path": "deploy/bootstrap.sh", "proves": "Idempotent ECS provisioning runbook" },
+    { "path": ".env.example", "proves": "Documented, honest configuration surface" }
+  ],
+  "methodology": {
+    "approach": "Static harness audit: read every harness artifact in the repo (skill package, lock file, MCP config and runtime, all 8 test suites' entry points, build/deploy scripts, Vercel helper, and all 11 status/plan documents), cross-checked claims against each other and against code, then synthesized from the explicit perspective of a human user who wants to run and extend this platform.",
+    "not_done": "No live server was started and no test suite was executed in this pass; all runtime claims are quoted from the project's own recorded verification runs and were cross-checked for internal consistency across at least two documents.",
+    "confidence": "High for documented practices (multiple corroborating artifacts); medium for runtime behavior (recorded, not re-run here)."
+  },
+  "limitations": [
+    "Findings reflect the repository state at analysis time; the project is declared feature-frozen at commit 2398e87.",
+    "Runtime behaviors (91/91, 17/17, TICKETED PNR) are accepted from the project's own audited records rather than re-executed.",
+    "The /better-harness owner validator was not available in this environment (skill not installed); a local validator pass was performed instead: findings.json and canvas.json were JSON-parse-checked and report.canvas.tsx was checked against the Canvas SDK declarations."
+  ]
+}
