@@ -1,6 +1,7 @@
 {
-  "name": "nextjs_tailwind_shadcn_ts",
-  "version": "0.2.1",
+  "name": "flightresist-ai",
+  "version": "2.0.0",
+  "description": "Autonomous Travel Recovery Intelligence — built for Alibaba Cloud × Atlas Agentic AI Hackathon 2026",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",

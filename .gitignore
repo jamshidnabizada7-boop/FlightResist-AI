@@ -72,6 +72,12 @@ tests/tmp-shots/
 tests/tmp-*.mjs
 db/custom.db
 
-# Agent workspaces
+# Agent workspaces & scratch tooling
 .agents/*
 !.agents/skills/
+.qoder/
+.zcode/
+.zscripts/
+mini-services/
+download/
+*.pid
