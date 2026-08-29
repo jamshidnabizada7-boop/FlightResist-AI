@@ -21,7 +21,7 @@
 | :--- | :---: | :--- | :--- |
 | **💡 Innovation** | **30%** | **Dual-Track Architecture:** Closed-form deterministic engine is 100% authoritative for safety constraints, graph risk, and multi-criteria ranking ($R = 0.35a + 0.25c + 0.20p + 0.10b + 0.10r$). The LLM is strictly explanation-only. **Causal Trip Impact Graph** evaluates the entire downstream mission (meetings, layovers, onward flights) rather than just the isolated cancelled leg. | [`src/lib/flightresist/impact-graph.ts`](./src/lib/flightresist/impact-graph.ts)<br>[`src/lib/flightresist/optimizer.ts`](./src/lib/flightresist/optimizer.ts) |
 | **🛠️ Feasibility & Production Readiness** | **30%** | Real `atlas-flight` 0.3.12 CLI integration tested end-to-end against the **Atlas Sandbox** — verified real fare search, booking order creation, and mock payment resulting in a live `TICKETED` PNR. 91 safety assertions enforce strict invariants: zero unconfirmed bookings and double-click idempotency. | [`src/lib/flightresist/providers/atlas-sandbox.ts`](./src/lib/flightresist/providers/atlas-sandbox.ts)<br>[`tests/phase6-safety.mjs`](./tests/phase6-safety.mjs) |
-| **☁️ Alibaba Cloud & Ecosystem** | **20%** | Multi-provider explanation fallback chain starting with **Alibaba Cloud Model Studio (Qwen-2.5)** via DashScope SDK. Real **MCP-over-HTTP server** (`/api/mcp`) exposing 5 autonomous recovery tools for agentic orchestration. Verified production deployment runbook for Alibaba Cloud ECS. | [`docs/QODER_EVIDENCE.md`](./docs/QODER_EVIDENCE.md)<br>[`docs/DEPLOY.md`](./docs/DEPLOY.md)<br>[`src/app/api/mcp/route.ts`](./src/app/api/mcp/route.ts) |
+| **☁️ Alibaba Cloud & Ecosystem** | **20%** | Multi-provider explanation fallback chain starting with **Alibaba Cloud Model Studio (Qwen-2.5)** via DashScope SDK. Real **MCP-over-HTTP server** (`/api/mcp`) exposing 5 autonomous recovery tools for agentic orchestration. Verified production deployment configurations for Alibaba Cloud ECS in `deploy/`. | [`deploy/`](./deploy)<br>[`src/app/api/mcp/route.ts`](./src/app/api/mcp/route.ts)<br>[`src/lib/flightresist/llm.ts`](./src/lib/flightresist/llm.ts) |
 | **🎨 Demo, UX & Accessibility** | **20%** | Real-time Server-Sent Events (SSE) telemetry stream, interactive 5-dimension radar visualizer, live constraint sliders with sub-10ms recalculations, one-click PDF / CSV audit exports, and a high-contrast colorblind-safe Operations Cockpit. | [`src/components/flightresist/cockpit.tsx`](./src/components/flightresist/cockpit.tsx)<br>[`src/app/page.tsx`](./src/app/page.tsx) |
 
 ### ⚡ Try It in 30 Seconds (Interactive Live Flow)
@@ -278,7 +278,7 @@ docker run -d -p 3000:3000 --name flightresist flightresist-ai
 
 ### Deploy to Alibaba Cloud ECS
 
-For complete production deployment instructions behind Caddy HTTPS reverse proxy with systemd process supervision on Alibaba Cloud ECS, see the detailed runbook in [`docs/DEPLOY.md`](./docs/DEPLOY.md).
+For complete production deployment behind Caddy HTTPS reverse proxy with systemd process supervision on Alibaba Cloud ECS, use the production scripts in [`deploy/`](./deploy) (`bootstrap.sh`, `Caddyfile`, and `flightresist.service`).
 
 ---
 
@@ -293,13 +293,6 @@ FlightResist-AI/
 │   ├── Dockerfile                # Multi-stage production container build
 │   ├── bootstrap.sh              # ECS automation script
 │   └── flightresist.service      # Systemd service definition
-├── docs/                         # Architecture, testing, and deployment specs
-│   ├── DEPLOY.md                 # Alibaba Cloud ECS deployment runbook
-│   ├── PROJECT_SPEC.md           # Full technical specifications
-│   ├── QODER_EVIDENCE.md         # Alibaba Cloud & Qoder evidence report
-│   ├── TEST_INFRA.md             # Automated test architecture guide
-│   ├── TEST_READY.md             # Test catalog and scenario matrix
-│   └── qoder_mcp_config.json     # MCP tool surface configuration
 ├── prisma/                       # Database schema and migrations
 │   └── schema.prisma             # SQLite / PostgreSQL schema
 ├── public/                       # Static public assets
